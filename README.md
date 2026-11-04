@@ -1,8 +1,8 @@
-# skyydb
+# ⛈️ skyydb
 
 A small local web app for personal trackers, each a SQLite database, fully local and runs on your own computer at http://127.0.0.1:8001. Last time I used google sheets, but don't really feel comfortable having allat online yknow.
 
-Choose what you like, leave what you dont 😛
+Choose what you like, leave what you dont 😛 also p.s. lowkey vibecoded but still useful la
 
 ## Table of contents
 
