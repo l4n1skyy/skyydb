@@ -1,4 +1,4 @@
-# _DATABASE
+# skyydb
 
 A small local web app for personal trackers, each a SQLite database, built on [Datasette](https://datasette.io) in [Catppuccin Mocha](https://catppuccin.com/palette) colours. It runs on your own computer at http://127.0.0.1:8001.
 
@@ -10,9 +10,17 @@ A small local web app for personal trackers, each a SQLite database, built on [D
 
 ![Home](docs/home.png)
 
-| Chinese | Workouts | Finance |
-|---|---|---|
-| ![Chinese lists](docs/chinese.png) | ![Workout log](docs/workouts.png) | ![Finance log](docs/finance.png) |
+| Chinese | Workouts |
+|---|---|
+| ![Chinese lists](docs/chinese.png) | ![Workout plans](docs/workouts.png) |
+
+| Finance | Uni |
+|---|---|
+| ![Finance investments](docs/finance.png) | ![Uni tasks](docs/uni.png) |
+
+| Quotes |
+|---|
+| ![Quotes](docs/quotes.png) |
 
 ## Install
 
@@ -22,8 +30,8 @@ You need Linux, Python 3.11+, SQLite, [uv](https://docs.astral.sh/uv/) and `xdg-
 sudo pacman -S --needed python sqlite uv xdg-utils noto-fonts-cjk
 uv tool install --prerelease=allow 'datasette==1.0a41'
 
-git clone https://github.com/l4n1skyy/local-database-web-app-for-personal-stuff.git _DATABASE
-cd _DATABASE
+git clone https://github.com/l4n1skyy/skyydb.git
+cd skyydb
 ln -s "$PWD/bin/db" ~/.local/bin/db     # any folder on your PATH works
 db                                       # creates the databases, starts the app, opens the browser
 ```
