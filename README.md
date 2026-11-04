@@ -2,11 +2,7 @@
 
 A small local web app for personal trackers, each a SQLite database, built on [Datasette](https://datasette.io) in [Catppuccin Mocha](https://catppuccin.com/palette) colours. It runs on your own computer at http://127.0.0.1:8001.
 
-- **Chinese vocabulary**: three lists (to learn, to revise, learnt) with simple spaced repetition.
-- **Workouts**: sets, plans, streaks, charts and personal records.
-- **Finance**: expenses against daily and monthly budgets, savings and shares.
-- **Uni**: courses and deadlines, ranked by priority.
-- **Quotes** and **Knowledge**: notes worth keeping, with tags.
+It has **Chinese vocabulary** (three lists with simple spaced repetition), **Workouts** (sets, plans, streaks and personal records), **Finance** (budgets, savings and shares), **Uni** (courses and deadlines ranked by priority), and **Quotes** and **Knowledge** (notes worth keeping, with tags).
 
 **Table of contents:** [Install](#install) · [Choose features](#choose-your-features) · [Run it](#run-it) · [Commands](#commands)
 
