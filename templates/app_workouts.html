@@ -30,9 +30,9 @@
 
   <section class="panel day">
     <header class="day-head">
-      <a class="btn small ghost{% if not prev_day %} disabled{% endif %}" {% if prev_day %}href="?date={{ prev_day }}"{% endif %} title="Previous workout">‹</a>
+      <a class="btn small ghost{% if not prev_day %} disabled{% endif %}" {% if prev_day %}href="?date={{ prev_day }}"{% endif %} title="Previous day">‹</a>
       <h2>{{ day|nice_date(true) }} <span class="muted">{{ day|days_ago }}</span></h2>
-      <a class="btn small ghost{% if not next_day %} disabled{% endif %}" {% if next_day %}href="?date={{ next_day }}"{% endif %} title="Next workout">›</a>
+      <a class="btn small ghost{% if not next_day %} disabled{% endif %}" {% if next_day %}href="?date={{ next_day }}"{% endif %} title="Next day">›</a>
       <span class="spacer"></span>
       {% if day != today %}<a class="btn small" href="?date={{ today }}">Today</a>{% endif %}
     </header>

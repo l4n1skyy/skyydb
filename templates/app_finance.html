@@ -65,9 +65,9 @@
 
   <section class="panel day">
     <header class="day-head">
-      <a class="btn small ghost{% if not prev_day %} disabled{% endif %}" {% if prev_day %}href="?date={{ prev_day }}"{% endif %} title="Previous day with expenses">‹</a>
+      <a class="btn small ghost{% if not prev_day %} disabled{% endif %}" {% if prev_day %}href="?date={{ prev_day }}"{% endif %} title="Previous day">‹</a>
       <h2>{{ day|nice_date(true) }} <span class="muted">{{ day|days_ago }}</span></h2>
-      <a class="btn small ghost{% if not next_day %} disabled{% endif %}" {% if next_day %}href="?date={{ next_day }}"{% endif %} title="Next day with expenses">›</a>
+      <a class="btn small ghost{% if not next_day %} disabled{% endif %}" {% if next_day %}href="?date={{ next_day }}"{% endif %} title="Next day">›</a>
       <span class="spacer"></span>
       {% if day != today %}<a class="btn small" href="?date={{ today }}">Today</a>{% endif %}
     </header>
@@ -257,7 +257,7 @@
         <h2>Savings at the end of each month</h2>
         {% if years %}
         <nav class="tab-group" aria-label="Which months">
-          <a href="?view=savings"{% if not year %} aria-current="page"{% endif %}>Last 24 months</a>
+          <a href="?view=savings&amp;year=24m"{% if not year %} aria-current="page"{% endif %}>Last 24 months</a>
           {% for y in years|reverse %}<a href="?view=savings&amp;year={{ y }}"{% if y == year %} aria-current="page"{% endif %}>{{ y }}</a>{% endfor %}
         </nav>
         {% endif %}

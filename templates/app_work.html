@@ -34,9 +34,9 @@
         <summary>
           <span class="when-box{{ ' over' if t.days_left is not none and t.days_left < 0 }}">{% if t.due %}<b>{{ t.due|short_due }}</b><i>{{ t.due_time or t.due|days_ago }}</i>{% else %}<b>–</b><i>no date</i>{% endif %}</span>
           <span class="task-title">{{ t.title }}</span>
+          {% if t.weight is not none %}<span class="weight">{{ t.weight|round(1)|string|replace('.0', '') }}%</span>{% else %}<span class="weight"></span>{% endif %}
           {% if t.course %}<span class="subject">{{ t.course }}</span>{% endif %}
           <span class="flag f{{ t.priority }}">{{ t.priority_name if t.priority <= 2 }}</span>
-          {% if t.weight is not none %}<span class="weight">{{ t.weight|round(1)|string|replace('.0', '') }}%</span>{% else %}<span class="weight"></span>{% endif %}
         </summary>
         <div class="task-body">
           <div class="meta">{% if t.kind %}<span>{{ t.kind }}</span>{% endif %}<span>{{ due_text(t) }}</span><span>{{ t.priority_name }} priority</span></div>
@@ -74,29 +74,31 @@
 {% elif view == "courses" %}
 <section class="panel">
   {% if courses %}
-  <table class="tag-table">
-    <thead><tr><th>Code</th><th>Name</th><th>Term</th><th>Active</th><th class="n">Tasks</th><th></th><th></th></tr></thead>
+  <form id="courses-form" method="post" action="/-/work/course"><input type="hidden" name="action" value="save_all"></form>
+  <table class="tag-table course-table">
+    <thead><tr><th>Programme</th><th>Name</th><th>Term</th><th>Active</th><th class="n">Tasks</th><th></th></tr></thead>
     <tbody>{% for c in courses %}<tr>
-      <form id="c{{ c.id }}" method="post" action="/-/work/course"><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="{{ c.id }}"></form>
-      <td><input form="c{{ c.id }}" name="code" value="{{ c.code }}" aria-label="Code" size="8"></td>
-      <td><input form="c{{ c.id }}" name="name" value="{{ c.name }}" aria-label="Name" required></td>
-      <td><input form="c{{ c.id }}" name="term" value="{{ c.term }}" aria-label="Term" size="12"></td>
-      <td><input form="c{{ c.id }}" type="checkbox" name="active" value="1"{% if c.active %} checked{% endif %} aria-label="Active"></td>
+      <td><input form="courses-form" name="code_{{ c.id }}" value="{{ c.code }}" aria-label="Programme"></td>
+      <td><input form="courses-form" name="name_{{ c.id }}" value="{{ c.name }}" aria-label="Name" required></td>
+      <td><input form="courses-form" name="term_{{ c.id }}" value="{{ c.term }}" aria-label="Term"></td>
+      <td><input form="courses-form" type="checkbox" name="active_{{ c.id }}" value="1"{% if c.active %} checked{% endif %} aria-label="Active"></td>
       <td class="n"><a href="/-/work?course={{ c.id }}">{{ c.tasks }}</a></td>
-      <td><button form="c{{ c.id }}" class="btn small">Save</button></td>
       <td class="n"><form method="post" action="/-/work/course" data-confirm="Delete {{ c.name }}? Its tasks stay, without a course.">
         <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{ c.id }}"><button class="icon danger">delete</button></form></td>
     </tr>{% endfor %}</tbody>
   </table>
   {% else %}<p class="empty">No courses yet.</p>{% endif %}
   <h2 class="settings-head">New course</h2>
+  <div class="course-foot">
   <form class="inline-form" method="post" action="/-/work/course">
     <input type="hidden" name="action" value="create">
-    <input name="code" placeholder="code, like CS101" size="12" aria-label="Code">
+    <input name="code" placeholder="programme" size="12" aria-label="Programme">
     <input name="name" required placeholder="name" aria-label="Name">
     <input name="term" placeholder="term, like Y3S1" size="14" aria-label="Term">
     <button class="btn small">Add it</button>
   </form>
+  <button form="courses-form" class="btn">Save all</button>
+  </div>
 </section>
 
 {% else %}

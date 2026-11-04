@@ -829,3 +829,22 @@ table.costs td.n { width: 6.5em; }
 .zen-toggle { margin: 0 14px 0 0; } .zen-toggle input { accent-color: var(--accent); }
 .zen-toggle input[type=number] { width: 4.2em; padding: 3px 6px; margin: 0 2px; }
 .zen-add { margin: 0 14px 0 0; }
+
+/* Work > Courses: editable table with one Save all, bottom right */
+.course-table { table-layout: fixed; }
+.course-table th:nth-child(1) { width: 20%; }
+.course-table th:nth-child(3) { width: 18%; }
+.course-table th:nth-child(4) { width: 64px; }
+.course-table th:nth-child(5) { width: 64px; }
+.course-table th:nth-child(6) { width: 56px; }
+.course-table input:not([type="checkbox"]) { width: 100%; box-sizing: border-box; }
+.course-table td { padding-right: 12px; }
+.course-table td:nth-child(4) { text-align: center; }
+.course-table th:nth-child(4) { text-align: center; }
+.course-table td:last-child { padding-right: 0; }
+.form-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+@media (max-width: 700px) { .course-table { table-layout: auto; } .course-table input:not([type="checkbox"]) { width: 100%; min-width: 7em; } }
+.course-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.course-table input[type="checkbox"] { accent-color: #cba6f7; }
+.course-table th:nth-child(4), .course-table td:nth-child(4) { padding-left: 0; padding-right: 12px; text-align: center; }
+.course-table input[type="checkbox"] { width: auto; margin: 0; vertical-align: middle; }

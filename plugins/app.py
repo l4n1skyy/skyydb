@@ -689,8 +689,8 @@ async def workouts(request, datasette):
             plan=plan, rest_day=plan is None and await is_rest_day(wo, day),
             groups=groups, prefill=prefill, last_per_exercise=last_per_exercise,
             total_sets=len(sets), total_volume=sum(g["volume"] for g in groups),
-            prev_day=(await one(wo, "SELECT max(date) AS d FROM sets WHERE date < :d", {"d": day})).get("d"),
-            next_day=(await one(wo, "SELECT min(date) AS d FROM sets WHERE date > :d", {"d": day})).get("d"),
+            prev_day=(date.fromisoformat(day) - timedelta(days=1)).isoformat(),
+            next_day=(date.fromisoformat(day) + timedelta(days=1)).isoformat() if day < date.today().isoformat() else None,
         )
     elif view == "plans":
         ctx.update(await plans_page(wo, request.args.get("plan")))
@@ -1025,8 +1025,8 @@ async def finance(request, datasette):
             expenses=await rows(fi, "SELECT id, category, amount, notes FROM expenses WHERE date = :d ORDER BY id", {"d": day}),
             prefill={"category": request.args.get("category", last.get("category", "")),
                      "amount": request.args.get("amount", ""), "notes": request.args.get("notes", "")},
-            prev_day=(await one(fi, "SELECT max(date) AS d FROM expenses WHERE date < :d", {"d": day})).get("d"),
-            next_day=(await one(fi, "SELECT min(date) AS d FROM expenses WHERE date > :d", {"d": day})).get("d"),
+            prev_day=(date.fromisoformat(day) - timedelta(days=1)).isoformat(),
+            next_day=(date.fromisoformat(day) + timedelta(days=1)).isoformat() if day < date.today().isoformat() else None,
         )
     elif view == "budget":
         month = request.args.get("month") or ""
@@ -1293,7 +1293,8 @@ async def finance_savings(fi, year=""):
                                total=round(sum(v for v in values if v is not None), 2)))
             month = add_months(month, 1)
     years = sorted({m["month"][:4] for m in months})
-    year = year if year in years else ""
+    this_year = str(date.today().year)
+    year = "" if year == "24m" else year if year in years else this_year if this_year in years else ""
     if year:  # January to December; months before the first entry or still to come stay empty
         have = {m["month"]: m for m in months}
         shown = [have.get(f"{year}-{k:02d}") or dict(month=f"{year}-{k:02d}", values=[None] * len(names),
@@ -2095,7 +2096,7 @@ async def finance_investments(fi, pick, rng):
     now = valuation(shares, today.isoformat())
     held = [p["ticker"] for p in now["positions"] if p["shares"] > 1e-9] or list(shares["tickers"])
     ticker = pick if pick in shares["tickers"] else (held[0] if held else None)
-    rng = rng if rng in RANGES else "1d"
+    rng = rng if rng in RANGES else "all"
     found = {r["key"]: r["value"] for r in await rows(fi, "SELECT key, value FROM settings WHERE key LIKE 'ibkr_%' OR key LIKE 'wise_%'")}
     ibkr = dict(token=bool(found.get("ibkr_flex_token")), query=found.get("ibkr_flex_query") or "",
                 error=found.get("ibkr_error"), waiting=await pending_deposits(fi))
@@ -2658,6 +2659,16 @@ async def uni_course(request, datasette):
     if action in ("create", "save") and not name:
         return back("/-/work", view="courses", error="A course needs a name.")
     db = datasette.get_database("work")
+    if action == "save_all":
+        ids = [k[5:] for k in form if k.startswith("name_") and k[5:].isdigit()]
+        for i in ids:
+            if not (form.get(f"name_{i}") or "").strip():
+                return back("/-/work", view="courses", error="A course needs a name.")
+        for i in ids:
+            await db.execute_write("UPDATE courses SET code = ?, name = ?, term = ?, active = ? WHERE id = ?",
+                                   [(form.get(f"code_{i}") or "").strip(), form.get(f"name_{i}").strip(),
+                                    (form.get(f"term_{i}") or "").strip(), 1 if form.get(f"active_{i}") else 0, int(i)])
+        return back("/-/work", view="courses", msg="Saved.")
     if action == "create":
         await db.execute_write("INSERT INTO courses (code, name, term) VALUES (?, ?, ?)", [code, name, term])
         msg = f"Added {name}."
