@@ -38,7 +38,7 @@ _background = set()
 
 # Which features are installed: the words in the `features` file next to this folder's
 # README (written by `skyydb install`); without the file, all of them.
-ALL_FEATURES = ("chinese", "workouts", "finance", "uni", "quotes", "knowledge")
+ALL_FEATURES = ("chinese", "workouts", "finance", "work", "quotes", "knowledge")
 
 
 def installed_features():
@@ -472,7 +472,7 @@ def weeks_back(n):
 async def home(request, datasette):
     on = FEATURES
     db = lambda name: datasette.get_database(name) if name in on else None
-    zh, wo, fi, un = db("chinese"), db("workouts"), db("finance"), db("uni")
+    zh, wo, fi, un = db("chinese"), db("workouts"), db("finance"), db("work")
     ctx = dict(page="home", shuffle=int(request.args.get("shuffle", "0")) if request.args.get("shuffle", "").isdigit() else 0)
     if zh:
         await sync(datasette)
@@ -2401,7 +2401,7 @@ async def quote_of_the_day(datasette):
     return min(found, key=lambda q: hashlib.sha1(f"{day}:quotes:{q['id']}".encode()).digest(), default=None)
 
 
-# --- Uni: courses, deadlines, assignments, priorities --------------------------------
+# --- Work: courses, deadlines, assignments, priorities --------------------------------
 
 UNI_COLOURS = ["#cba6f7", "#a6e3a1", "#89b4fa", "#fab387", "#f5c2e7", "#94e2d5"]  # Mocha: one per course
 
@@ -2442,13 +2442,13 @@ async def semester_week(db):
 
 
 async def uni(request, datasette):
-    db = datasette.get_database("uni")
+    db = datasette.get_database("work")
     courses = await rows(db, "SELECT * FROM course_progress")
     kinds = await rows(db, "SELECT * FROM kinds ORDER BY position, id")
     priorities = await rows(db, "SELECT * FROM priorities ORDER BY level")
     view = request.args.get("view") if request.args.get("view") in ("courses", "add") else "tasks"
     tasks = await rows(db, "SELECT * FROM task_list")
-    ctx = dict(page="uni", week=await semester_week(db), view=view, courses=courses, kinds=kinds, priorities=priorities, n_tasks=len(tasks))
+    ctx = dict(page="work", week=await semester_week(db), view=view, courses=courses, kinds=kinds, priorities=priorities, n_tasks=len(tasks))
     editing = await one(db, "SELECT * FROM tasks WHERE id = ?", [request.args.get("edit", "")]) if request.args.get("edit", "").isdigit() else {}
     if editing:
         ctx.update(view="add", task=editing)
@@ -2470,7 +2470,7 @@ async def uni(request, datasette):
             week=len(groups.get("Today", [])) + len(groups.get("This week", [])),
             top=sum(t["priority"] <= 2 for t in tasks),
             total=len(tasks))
-    return await render(datasette, request, "app_uni.html", **ctx)
+    return await render(datasette, request, "app_work.html", **ctx)
 
 
 def _uni_number(text):
@@ -2485,13 +2485,13 @@ async def uni_save(request, datasette):
     form = {k: v[0].strip() for k, v in parse_qs((await request.post_body()).decode(), keep_blank_values=True).items()}
     task_id = form.get("id", "")
     if not form.get("title"):
-        return back("/-/uni", view="add", error="A task needs a title.")
+        return back("/-/work", view="add", error="A task needs a title.")
     due = form.get("due", "")
     try:
         if due:
             date.fromisoformat(due)
     except ValueError:
-        return back("/-/uni", view="add", error="That deadline isn't a date.")
+        return back("/-/work", view="add", error="That deadline isn't a date.")
     values = dict(
         title=form["title"],
         course_id=int(form["course_id"]) if form.get("course_id", "").isdigit() else None,
@@ -2509,15 +2509,15 @@ async def uni_save(request, datasette):
         conn.execute(f"INSERT INTO tasks ({', '.join(values)}) VALUES ({', '.join(':' + c for c in values)})", values)
         return 1
 
-    if not await datasette.get_database("uni").execute_write_fn(write):
-        return back("/-/uni", error="That task isn't there any more.")
-    return back("/-/uni", msg=("Saved " if task_id else "Added ") + f"{values['title']}.")
+    if not await datasette.get_database("work").execute_write_fn(write):
+        return back("/-/work", error="That task isn't there any more.")
+    return back("/-/work", msg=("Saved " if task_id else "Added ") + f"{values['title']}.")
 
 
 async def uni_delete(request, datasette):
     """Finish a task (action done), bring it back (undo), or delete it for good"""
     form = await request.post_vars()
-    db, task_id, action = datasette.get_database("uni"), form.get("id"), form.get("action", "delete")
+    db, task_id, action = datasette.get_database("work"), form.get("id"), form.get("action", "delete")
     if action == "done":
         await db.execute_write("UPDATE tasks SET done_on = date('now', 'localtime') WHERE id = ?", [task_id])
         msg = "Moved it to Done."
@@ -2527,7 +2527,7 @@ async def uni_delete(request, datasette):
     else:
         await db.execute_write("DELETE FROM tasks WHERE id = ?", [task_id])
         msg = "Removed the task."
-    return back("/-/uni", msg=msg, course=form.get("course"))
+    return back("/-/work", msg=msg, course=form.get("course"))
 
 
 async def uni_course(request, datasette):
@@ -2537,8 +2537,8 @@ async def uni_course(request, datasette):
     code, name, term = (form.get("code") or "").strip(), (form.get("name") or "").strip(), (form.get("term") or "").strip()
     active = 1 if form.get("active") else 0
     if action in ("create", "save") and not name:
-        return back("/-/uni", view="courses", error="A course needs a name.")
-    db = datasette.get_database("uni")
+        return back("/-/work", view="courses", error="A course needs a name.")
+    db = datasette.get_database("work")
     if action == "create":
         await db.execute_write("INSERT INTO courses (code, name, term) VALUES (?, ?, ?)", [code, name, term])
         msg = f"Added {name}."
@@ -2548,7 +2548,7 @@ async def uni_course(request, datasette):
     else:
         await db.execute_write("DELETE FROM courses WHERE id = ?", [cid])
         msg = "Deleted the course; its tasks stay."
-    return back("/-/uni", view="courses", msg=msg)
+    return back("/-/work", view="courses", msg=msg)
 
 
 # --- Datasette's own pages: match the theme -------------------------------------
@@ -2603,10 +2603,10 @@ ROUTES = {
         (r"^/-/finance/delete$", finance_delete),
         (r"^/-/finance/budget$", budget_save),
     ],
-    "uni": [
-        (r"^/-/uni$", uni),
-        (r"^/-/uni/save$", uni_save),
-        (r"^/-/uni/delete$", uni_delete),
-        (r"^/-/uni/course$", uni_course),
+    "work": [
+        (r"^/-/work$", uni),
+        (r"^/-/work/save$", uni_save),
+        (r"^/-/work/delete$", uni_delete),
+        (r"^/-/work/course$", uni_course),
     ],
 }

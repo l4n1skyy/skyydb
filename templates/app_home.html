@@ -8,7 +8,7 @@
     {% endif %}
   </div>
 
-  <div class="home-cols{% if "uni" not in features %} no-side{% endif %}">
+  <div class="home-cols{% if "work" not in features %} no-side{% endif %}">
     <div class="home-main">
 {% if 'chinese' in features %}
   <section class="panel home-chinese">
@@ -88,10 +88,10 @@
 {% endif %}
 
     </div>
-{% if 'uni' in features %}
+{% if 'work' in features %}
   <aside class="panel home-uni">
     <header class="panel-head">
-      <h2><a href="/-/uni">Work</a></h2>
+      <h2><a href="/-/work">Work</a></h2>
       <span class="muted">{% if uni.semester and not uni.semester.before %}{% if uni.semester.on_break %}Break week{% elif uni.semester.after %}Semester over{% else %}Week {{ uni.semester.n }} of {{ uni.semester.total }}{% endif %} · {% endif %}{{ uni.top }} tasks</span>
     </header>
     <div class="home-picks">
@@ -100,17 +100,17 @@
       <ul class="task-list">
         {% for t in uni.next %}
         <li class="task p{{ t.priority }}" style="--c: {{ t.course_id|course_color }}"><div class="task-main">
-          <a class="task-title" href="/-/uni?edit={{ t.id }}">{{ t.title }}</a>
+          <a class="task-title" href="/-/work?edit={{ t.id }}">{{ t.title }}</a>
           <div class="meta">{% if t.course %}<span class="subject">{{ t.course }}</span>{% endif %}
             <span class="{{ 'over-text' if t.days_left is not none and t.days_left < 0 }}">{% if t.due %}{{ t.due|nice_date }} · {{ t.due|days_ago }}{% else %}no deadline{% endif %}</span></div>
         </div></li>
         {% endfor %}
       </ul>
-      {% else %}<p class="empty">Nothing urgent or high priority. <a href="/-/uni?view=add">Add a task</a>.</p>{% endif %}
+      {% else %}<p class="empty">Nothing urgent or high priority. <a href="/-/work?view=add">Add a task</a>.</p>{% endif %}
     </div>
     <div class="actions">
-      <a class="btn primary" href="/-/uni">Open</a>
-      <a class="btn" href="/-/uni?view=add">Add a task</a>
+      <a class="btn primary" href="/-/work">Open</a>
+      <a class="btn" href="/-/work?view=add">Add a task</a>
     </div>
   </aside>
 {% endif %}

@@ -103,8 +103,8 @@ databases:
         description: Every bit with its tags.
       tag_counts:
         description: How many bits each tag has.
-  uni:
-    description: University - courses and their tasks (assignments, exams...) with deadlines and priorities. Day-to-day at /-/uni.
+  work:
+    description: Work - courses and their tasks (assignments, exams...) with deadlines and priorities. Day-to-day at /-/work.
     tables:
       courses:
         description: Your courses. Deleting one keeps its tasks, without a course.

@@ -73,7 +73,7 @@ databases:
           text: textarea
       bit_tags:
         facets: [tag]
-  uni:
+  work:
     tables:
       tasks:
         sort: due

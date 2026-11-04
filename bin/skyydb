@@ -39,13 +39,10 @@ from datetime import date, datetime
 from pathlib import Path
 
 DB_DIR = Path(os.environ.get("DB_DIR", Path(__file__).resolve().parent.parent))
-ALL_FEATURES = ("chinese", "workouts", "finance", "uni", "quotes", "knowledge")
-ALIASES = {"workout": "workouts", "gym": "workouts", "quote": "quotes", "work": "uni", "uni": "uni", "university": "uni", "school": "uni"}
-LABELS = {"uni": "work"}  # what the work feature is called on screen (its files are still uni.*)
-
-
+ALL_FEATURES = ("chinese", "workouts", "finance", "work", "quotes", "knowledge")
+ALIASES = {"workout": "workouts", "gym": "workouts", "quote": "quotes", "uni": "work", "university": "work", "school": "work"}
 def label(f):
-    return LABELS.get(f, f)
+    return f
 FEATURES_FILE = DB_DIR / "features"
 
 
@@ -453,7 +450,7 @@ def status():
                 table = "quotes" if name == "quotes" else "bits"
                 n, tags = conn.execute(f"SELECT (SELECT count(*) FROM {table}), (SELECT count(*) FROM tags)").fetchone()
                 print(f"{name.capitalize()}: {n} {table}, {tags} tags")
-            elif name == "uni":
+            elif name == "work":
                 n, soon, over = conn.execute("""SELECT count(*), count(*) FILTER (WHERE days_left BETWEEN 0 AND 7),
                                                                  count(*) FILTER (WHERE days_left < 0) FROM task_list""").fetchone()
                 print(f"Work: {n} tasks, {soon} due in the next week, {over} overdue")
