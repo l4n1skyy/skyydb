@@ -4,6 +4,8 @@ A small local web app for personal trackers, each a SQLite database, fully local
 
 Choose what you like, leave what you dont 😛 also p.s. lowkey vibecoded but still useful la
 
+ALSO! fun fact, can connect ibkr and wise api directly to investments page. And quotes are fetched from ZenQuotes through api too.
+
 ## Table of contents
 
 - [Install](#install)
