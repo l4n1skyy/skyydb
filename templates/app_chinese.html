@@ -38,6 +38,7 @@
 </div>
 
 <div class="words" id="words" data-list="{{ tab }}">
+<script>try{if(localStorage.getItem("hideMeaning")==="1"){document.getElementById("hide").checked=true;document.getElementById("words").classList.add("quiz")}}catch{}</script>
 {% for w in words %}
   <article class="word" data-id="{{ w.id }}" data-hsk="{{ w.hsk or '' }}" data-cat="{{ w.category or '' }}"
            data-text="{{ w.character }} {{ w.pinyin }} {{ w.english }} {{ w.notes }}">

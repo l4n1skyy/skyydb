@@ -10,6 +10,8 @@
   {% for name, value in theme.vars.items() %}--{{ name }}: {{ value }};
   {% endfor %}--ui-font: {% if ui_font %}{{ ui_font|tojson }}, {% endif %}"Zpix", ui-monospace, monospace;
 }
+html { background: var(--bg); }
+@view-transition { navigation: auto; }
 </style>
 <link rel="stylesheet" href="/static/app.css?v={{ v }}">
 <script src="/static/app.js?v={{ v }}" defer></script>
