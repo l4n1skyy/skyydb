@@ -496,6 +496,12 @@ async def home(request, datasette):
                                     AND date >= date('now', 'localtime', '-6 days', 'weekday 1')"""))["n"])
     if wo:
         ctx["streak"] = streaks({date.fromisoformat(r["date"]) for r in await rows(wo, "SELECT DISTINCT date FROM sets")})
+        today_iso = date.today().isoformat()
+        plan = await plan_for_day(wo, today_iso)
+        if plan:
+            ctx["today_plan"] = dict(name=plan["name"], muscles=", ".join(plan["muscles"]), n=len(plan["exercises"]), rest=False)
+        elif await is_rest_day(wo, today_iso):
+            ctx["today_plan"] = dict(name="Rest day", muscles="", n=0, rest=True)
     if fi:
         ctx["fin"] = await day_summary(fi, date.today().isoformat(), await budget_lines(fi))
     if un:

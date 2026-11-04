@@ -48,25 +48,26 @@
 {% endif %}
 
 {% if 'workouts' in features %}
-  <section class="panel">
+  <section class="panel home-workouts">
     <header class="panel-head">
       <h2><a href="/-/workouts">Workouts</a></h2>
     </header>
-    <div class="home-row">
-      <div class="tiles streaks">
-        <div class="tile">
-          <span class="tile-label">Day streak</span>
-          <span class="tile-value">{{ streak.days }} <small>day{{ "s" if streak.days != 1 }}</small></span>
+    <div class="workout-grid">
+      <div class="today-card{% if today_plan and today_plan.rest %} rest{% endif %}">
+        <div class="today-text">
+          <span class="today-label">Today's workout</span>
+          <span class="today-name">{{ today_plan.name if today_plan else "Nothing planned" }}</span>
+          {% if today_plan and today_plan.n %}<span class="today-sub">{{ today_plan.n }} exercise{{ "s" if today_plan.n != 1 }}{% if today_plan.muscles %} · {{ today_plan.muscles }}{% endif %}</span>{% endif %}
         </div>
-        <div class="tile">
-          <span class="tile-label">Week streak</span>
-          <span class="tile-value">{{ streak.weeks }} <small>week{{ "s" if streak.weeks != 1 }}</small></span>
-        </div>
-      </div>
-      <div class="actions">
         <a class="btn primary" href="/-/workouts">Log a workout</a>
-        <a class="btn" href="/-/workouts?view=history">History</a>
-        <a class="btn ghost" href="/-/workouts?view=stats">Stats</a>
+      </div>
+      <div class="tile">
+        <span class="tile-label">Day streak</span>
+        <span class="tile-value">{{ streak.days }} <small>day{{ "s" if streak.days != 1 }}</small></span>
+      </div>
+      <div class="tile">
+        <span class="tile-label">Week streak</span>
+        <span class="tile-value">{{ streak.weeks }} <small>week{{ "s" if streak.weeks != 1 }}</small></span>
       </div>
     </div>
   </section>

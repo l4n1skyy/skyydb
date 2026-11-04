@@ -375,8 +375,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .raw-nav { display: none; }
   .main-nav { flex-wrap: wrap; }
   main { padding: 16px; }
-  .charts, .log-layout, .home-row, .home-cols { grid-template-columns: 1fr; }
-  .home-uni { contain: none; overflow: visible; }
+  .charts, .log-layout, .home-row, .home-cols,   .home-uni { contain: none; overflow: visible; }
   .home-row > .actions { justify-content: flex-start; }
   .charts { grid-template-columns: minmax(0, 1fr); }
   .log-form { position: static; }
@@ -850,3 +849,26 @@ table.costs td.n { width: 6.5em; }
 .course-table input[type="checkbox"] { accent-color: #cba6f7; }
 .course-table th:nth-child(4), .course-table td:nth-child(4) { padding-left: 0; padding-right: 12px; text-align: center; }
 .course-table input[type="checkbox"] { width: auto; margin: 0; vertical-align: middle; }
+
+/* Home: Workouts panel = one strip: today's plan (with the log button) and the two streaks */
+.home-workouts { gap: 10px; }
+.home-workouts .workout-grid { display: grid; grid-template-columns: minmax(0, 2.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.home-workouts .tile { justify-content: center; padding: 8px 16px; }
+.home-workouts .tile-value { font-size: 1.6rem; }
+.today-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 10px 18px; border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid transparent; border-left: 3px solid var(--accent);
+}
+.today-card.rest { border-left-color: var(--border); }
+.today-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.today-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.today-name { font-size: 2rem; font-weight: 700; line-height: 1.1; color: var(--text); overflow-wrap: anywhere; }
+.today-card.rest .today-name { color: var(--muted); }
+.today-sub { font-size: 0.85rem; color: var(--muted); }
+.today-card .btn { flex: none; }
+@media (max-width: 760px) {
+  .home-workouts .workout-grid { grid-template-columns: 1fr 1fr; }
+  .today-card { grid-column: 1 / -1; }
+}
