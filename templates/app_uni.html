@@ -1,0 +1,128 @@
+{# Uni: tasks grouped by deadline, courses, sections (kinds + priorities), add/edit a task. See plugins/app.py (uni). #}
+{% extends "app_base.html" %}
+{% block title %}Uni{% endblock %}
+{% macro due_text(t) %}{% if t.due %}{{ t.due|nice_date }}{% if t.due_time %} {{ t.due_time }}{% endif %} · {{ t.due|days_ago }}{% else %}no deadline{% endif %}{% endmacro %}
+{% macro week_text(w) %}{% if w.before %}Starts {{ w.start|nice_date }}{% elif w.on_break %}Break week{% elif w.after %}Semester over{% else %}Week {{ w.n }} of {{ w.total }}{% endif %}{% endmacro %}
+{% block main %}
+<div class="page-head">
+  <h1>Uni{% if week %} <span class="week-pill" title="{{ week.name }} · {{ week.start|nice_date }} to {{ week.end|nice_date }}">{{ week_text(week) }}</span>{% endif %}</h1>
+  <nav class="tabs" aria-label="Uni">
+    <div class="tab-group">
+      <a href="/-/uni"{% if view == "tasks" %} aria-current="page"{% endif %}>Tasks <span class="count">{{ n_tasks }}</span></a>
+      <a href="?view=courses"{% if view == "courses" %} aria-current="page"{% endif %}>Courses <span class="count">{{ courses|length }}</span></a>
+    </div>
+    <div class="tab-group">
+      <a href="?view=add"{% if view == "add" %} aria-current="page"{% endif %}>+ Add a task</a>
+    </div>
+  </nav>
+</div>
+
+{% if view == "tasks" %}
+{% if courses|length > 1 %}
+<nav class="chips tag-filter" aria-label="Show one course">
+  <a class="chip" href="/-/uni"{% if not pick %} aria-current="true"{% endif %}>all</a>
+  {% for c in courses if c.active %}<a class="chip" style="--c: {{ c.id|course_color }}" href="?course={{ c.id }}"{% if c.id == pick %} aria-current="true"{% endif %}>{{ c.name }} <span class="n">{{ c.tasks }}</span></a>{% endfor %}
+</nav>
+{% endif %}
+{% for group, tasks in groups %}
+<section class="panel uni-group{% if group == 'Overdue' %} overdue{% endif %}">
+  <h2>{{ group }} <span class="muted">{{ tasks|length }}</span></h2>
+  <ul class="task-list">
+  {% for t in tasks %}
+    <li class="task p{{ t.priority }}" style="--c: {{ t.course_id|course_color }}">
+      <details class="task-details">
+        <summary>
+          <span class="when-box{{ ' over' if t.days_left is not none and t.days_left < 0 }}">{% if t.due %}<b>{{ t.due|short_due }}</b><i>{{ t.due_time or t.due|days_ago }}</i>{% else %}<b>–</b><i>no date</i>{% endif %}</span>
+          <span class="task-title">{{ t.title }}</span>
+          {% if t.course %}<span class="subject">{{ t.course }}</span>{% endif %}
+          <span class="flag f{{ t.priority }}">{{ t.priority_name if t.priority <= 2 }}</span>
+          {% if t.weight is not none %}<span class="weight">{{ t.weight|round(1)|string|replace('.0', '') }}%</span>{% else %}<span class="weight"></span>{% endif %}
+        </summary>
+        <div class="task-body">
+          <div class="meta">{% if t.kind %}<span>{{ t.kind }}</span>{% endif %}<span>{{ due_text(t) }}</span><span>{{ t.priority_name }} priority</span></div>
+          {% if t.notes %}<div class="notes">{{ t.notes }}</div>{% endif %}
+          <div class="actions">
+            <a class="btn small" href="?edit={{ t.id }}">Edit</a>
+            <form method="post" action="/-/uni/delete"><input type="hidden" name="action" value="done"><input type="hidden" name="id" value="{{ t.id }}"><input type="hidden" name="course" value="{{ pick or '' }}">
+              <button class="btn small primary" title="Finished: moves it to the Done section">Done</button></form>
+          </div>
+        </div>
+      </details>
+    </li>
+  {% endfor %}
+  </ul>
+</section>
+{% else %}
+<p class="empty">Nothing to do{% if pick %} in this course{% endif %}. <a href="?view=add">Add a task</a>.</p>
+{% endfor %}
+{% if done %}
+<section class="panel uni-group done-group">
+  <h2>Done <span class="muted">{{ done|length }}</span></h2>
+  <ul class="task-list">
+  {% for t in done %}
+    <li class="task" style="--c: {{ t.course_id|course_color }}"><div class="done-row">
+      <span class="when-box"><b>{{ t.done_on|short_due }}</b><i>finished</i></span>
+      <span class="task-title">{{ t.title }}</span>
+      {% if t.course %}<span class="subject">{{ t.course }}</span>{% endif %}
+      <form method="post" action="/-/uni/delete"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="{{ t.id }}"><input type="hidden" name="course" value="{{ pick or '' }}"><button class="btn small">Undo</button></form>
+    </div></li>
+  {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% elif view == "courses" %}
+<section class="panel">
+  {% if courses %}
+  <table class="tag-table">
+    <thead><tr><th>Code</th><th>Name</th><th>Term</th><th>Active</th><th class="n">Tasks</th><th></th><th></th></tr></thead>
+    <tbody>{% for c in courses %}<tr>
+      <form id="c{{ c.id }}" method="post" action="/-/uni/course"><input type="hidden" name="action" value="save"><input type="hidden" name="id" value="{{ c.id }}"></form>
+      <td><input form="c{{ c.id }}" name="code" value="{{ c.code }}" aria-label="Code" size="8"></td>
+      <td><input form="c{{ c.id }}" name="name" value="{{ c.name }}" aria-label="Name" required></td>
+      <td><input form="c{{ c.id }}" name="term" value="{{ c.term }}" aria-label="Term" size="12"></td>
+      <td><input form="c{{ c.id }}" type="checkbox" name="active" value="1"{% if c.active %} checked{% endif %} aria-label="Active"></td>
+      <td class="n"><a href="/-/uni?course={{ c.id }}">{{ c.tasks }}</a></td>
+      <td><button form="c{{ c.id }}" class="btn small">Save</button></td>
+      <td class="n"><form method="post" action="/-/uni/course" data-confirm="Delete {{ c.name }}? Its tasks stay, without a course.">
+        <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{ c.id }}"><button class="icon danger">delete</button></form></td>
+    </tr>{% endfor %}</tbody>
+  </table>
+  {% else %}<p class="empty">No courses yet.</p>{% endif %}
+  <h2 class="settings-head">New course</h2>
+  <form class="inline-form" method="post" action="/-/uni/course">
+    <input type="hidden" name="action" value="create">
+    <input name="code" placeholder="code, like CS101" size="12" aria-label="Code">
+    <input name="name" required placeholder="name" aria-label="Name">
+    <input name="term" placeholder="term, like Y3S1" size="14" aria-label="Term">
+    <button class="btn small">Add it</button>
+  </form>
+</section>
+
+{% else %}
+<form class="panel form-grid note-form" method="post" action="/-/uni/save" autocomplete="off">
+  <h2 class="wide">{{ "Edit the task" if task.id else "Add a task" }}</h2>
+  {% if task.id %}<input type="hidden" name="id" value="{{ task.id }}">{% endif %}
+  <label class="wide">Title <input name="title" value="{{ task.title or '' }}" required{% if not task.id %} autofocus{% endif %} placeholder="Assignment 2, quiz 3, read chapter 4"></label>
+  <label>Course <select name="course_id"><option value="">none</option>
+    {% for c in courses if c.active or c.id == task.course_id %}<option value="{{ c.id }}"{% if c.id == task.course_id %} selected{% endif %}>{{ c.code ~ ' · ' if c.code }}{{ c.name }}</option>{% endfor %}</select></label>
+  <label>Kind <select name="kind_id"><option value="">none</option>{% for k in kinds %}<option value="{{ k.id }}"{% if k.id == task.kind_id %} selected{% endif %}>{{ k.name }}</option>{% endfor %}</select></label>
+  <label>Deadline <input type="date" name="due" value="{{ task.due or '' }}"></label>
+  <label>Time (optional) <input type="time" name="due_time" value="{{ task.due_time or '' }}"></label>
+  <label>Priority <select name="priority">{% for p in priorities %}<option value="{{ p.level }}"{% if p.level == (task.priority or 3) %} selected{% endif %}>{{ p.level }} · {{ p.name }}</option>{% endfor %}</select></label>
+  <label>Worth (% of the course grade) <input name="weight" inputmode="decimal" value="{{ task.weight|string|replace('.0', '') if task.weight is not none else '' }}" placeholder="20"></label>
+  <label class="wide">Notes <textarea name="notes" rows="3">{{ task.notes or '' }}</textarea></label>
+  <div class="wide actions">
+    <button class="btn primary">{{ "Save" if task.id else "Add the task" }}</button>
+    <a class="btn ghost" href="/-/uni">Cancel</a>
+  </div>
+</form>
+{% if task.id %}
+<form class="delete-note" method="post" action="/-/uni/delete" data-confirm="Delete this task?">
+  <input type="hidden" name="id" value="{{ task.id }}">
+  <button class="icon danger">Delete this task</button>
+  <span class="muted small-print">· added {{ task.added|nice_date(true) }}</span>
+</form>
+{% endif %}
+{% endif %}
+{% endblock %}

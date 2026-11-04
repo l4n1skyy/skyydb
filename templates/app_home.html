@@ -1,43 +1,23 @@
 {% extends "app_base.html" %}
 {% block main %}
 <div class="home">
-  {% if quote %}
-  <a class="home-quote" href="/-/quotes"><q>{{ quote.text }}</q>{% if quote.author or quote.source %} <span class="muted">— {{ [quote.author, quote.source]|select|join(", ") }}</span>{% endif %}</a>
-  {% endif %}
+  <div class="home-top">
+    <div class="home-date"><b>{{ today.day }}</b><b>{{ today.month }}</b><span>{{ today.rest }}</span></div>
+    {% if quote %}
+    <a class="home-quote" href="/-/quotes"><q>{{ quote.text }}</q>{% if quote.author or quote.source %} <span class="muted">— {{ [quote.author, quote.source]|select|join(", ") }}</span>{% endif %}</a>
+    {% endif %}
+  </div>
 
-  <section class="panel">
+  <div class="home-cols">
+    <div class="home-main">
+  <section class="panel home-chinese">
     <header class="panel-head">
-      <h2><a href="/-/chinese">Chinese</a></h2>
-      <span class="muted">{{ counts.values()|sum|num }} words</span>
+      <h2><a href="/-/chinese">Chinese</a> <span class="muted">today's words</span></h2>
+      <a class="icon" href="/?shuffle={{ shuffle + 1 }}" title="Pick three other words">shuffle</a>
     </header>
     <div class="home-row">
-      <div class="home-side">
-        <div class="tiles">
-          <a class="tile{% if counts['to revise'] %} due{% endif %}" href="/-/chinese?list=to-revise">
-            <span class="tile-label">To revise</span><span class="tile-value">{{ counts['to revise']|num }}</span></a>
-          <a class="tile" href="/-/chinese?list=to-learn">
-            <span class="tile-label">To learn</span><span class="tile-value">{{ counts['to learn']|num }}</span></a>
-          <a class="tile" href="/-/chinese?list=learnt">
-            <span class="tile-label">Learnt</span><span class="tile-value">{{ counts['learnt']|num }}</span></a>
-        </div>
-        <ul class="facts">
-          <li>{% if upcoming %}Next revision: {{ upcoming.words }} word{{ "s" if upcoming.words != 1 }} on {{ upcoming.revise_on|nice_date }} ({{ upcoming.revise_on|days_ago }})
-              {% else %}No learnt words waiting for revision yet{% endif %}</li>
-          <li>Learnt this week: {{ learnt_week }}</li>
-        </ul>
-        <div class="actions">
-          <a class="btn primary" href="/-/chinese">Study</a>
-          <a class="btn" href="/-/chinese?list=add">Add a word</a>
-          <a class="btn ghost" href="/-/chinese?list=stats">Stats</a>
-        </div>
-      </div>
-
       {% if picks %}
       <div class="home-picks">
-        <div class="picks-head">
-          <h3>Today's words</h3>
-          <a class="icon" href="/?shuffle={{ shuffle + 1 }}" title="Pick three other words">shuffle</a>
-        </div>
         <div class="picks">
           {% for w in picks %}
           <article class="word pick">
@@ -100,5 +80,32 @@
     </a>
     {% else %}<p class="empty"><a href="/-/finance?view=budget">Set a daily budget</a> to see what's left of it here.</p>{% endif %}
   </section>
+
+    </div>
+  <aside class="panel home-uni">
+    <header class="panel-head">
+      <h2><a href="/-/uni">Uni</a></h2>
+      <span class="muted">{% if uni.semester and not uni.semester.before %}{% if uni.semester.on_break %}Break week{% elif uni.semester.after %}Semester over{% else %}Week {{ uni.semester.n }} of {{ uni.semester.total }}{% endif %} · {% endif %}{{ uni.top }} tasks</span>
+    </header>
+    <div class="home-picks">
+      {% if uni.next %}
+      <h3>Urgent and high priority</h3>
+      <ul class="task-list">
+        {% for t in uni.next %}
+        <li class="task p{{ t.priority }}" style="--c: {{ t.course_id|course_color }}"><div class="task-main">
+          <a class="task-title" href="/-/uni?edit={{ t.id }}">{{ t.title }}</a>
+          <div class="meta">{% if t.course %}<span class="subject">{{ t.course }}</span>{% endif %}
+            <span class="{{ 'over-text' if t.days_left is not none and t.days_left < 0 }}">{% if t.due %}{{ t.due|nice_date }} · {{ t.due|days_ago }}{% else %}no deadline{% endif %}</span></div>
+        </div></li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="empty">Nothing urgent or high priority. <a href="/-/uni?view=add">Add a task</a>.</p>{% endif %}
+    </div>
+    <div class="actions">
+      <a class="btn primary" href="/-/uni">Open</a>
+      <a class="btn" href="/-/uni?view=add">Add a task</a>
+    </div>
+  </aside>
+  </div>
 </div>
 {% endblock %}

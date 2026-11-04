@@ -24,7 +24,32 @@
     <a href="/-/finance"{% if page == "finance" %} aria-current="page"{% endif %}>Finance</a>
     <a href="/-/quotes"{% if page == "quotes" %} aria-current="page"{% endif %}>Quotes</a>
     <a href="/-/knowledge"{% if page == "knowledge" %} aria-current="page"{% endif %}>Knowledge</a>
+    <a href="/-/uni"{% if page == "uni" %} aria-current="page"{% endif %}>Uni</a>
   </nav>
+  <script>
+  // The menu can be rearranged by dragging; the order is remembered in this browser
+  (() => {
+    const nav = document.querySelector(".main-nav");
+    const KEY = "nav-order";
+    const save = () => { try { localStorage.setItem(KEY, JSON.stringify([...nav.children].map((a) => a.getAttribute("href")))); } catch {} };
+    try {
+      for (const href of JSON.parse(localStorage.getItem(KEY) || "[]")) {
+        const a = [...nav.children].find((x) => x.getAttribute("href") === href);
+        if (a) nav.appendChild(a);
+      }
+    } catch {}
+    let dragged = null;
+    nav.addEventListener("dragstart", (e) => { dragged = e.target.closest("a"); if (dragged) { e.dataTransfer.effectAllowed = "move"; dragged.classList.add("dragging"); } });
+    nav.addEventListener("dragover", (e) => {
+      if (!dragged) return;
+      e.preventDefault();
+      const after = [...nav.children].filter((a) => a !== dragged).find((a) => { const r = a.getBoundingClientRect(); return e.clientX < r.left + r.width / 2; });
+      if (after) nav.insertBefore(dragged, after); else nav.appendChild(dragged);
+    });
+    nav.addEventListener("drop", (e) => e.preventDefault());
+    nav.addEventListener("dragend", () => { dragged?.classList.remove("dragging"); dragged = null; save(); });
+  })();
+  </script>
   <nav class="raw-nav" aria-label="Raw data">
     <span>raw data</span>
     <a href="/chinese" title="Browse and edit every table in Datasette">chinese.db</a>
@@ -32,6 +57,7 @@
     <a href="/finance" title="Browse and edit every table in Datasette">finance.db</a>
     <a href="/quotes" title="Browse and edit every table in Datasette">quotes.db</a>
     <a href="/knowledge" title="Browse and edit every table in Datasette">knowledge.db</a>
+    <a href="/uni" title="Browse and edit every table in Datasette">uni.db</a>
   </nav>
 </header>
 <main>

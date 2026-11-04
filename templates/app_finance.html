@@ -316,7 +316,7 @@
   {% if left is not none %}<div class="tile{{ ' over' if left < 0 }}"><span class="tile-label">{{ "Over budget" if left < 0 else "Left of budget" }}</span><span class="tile-value money">{{ left|abs|money }}</span>
     <span class="tile-note">of {{ budget|money }}</span></div>{% endif %}
   <div class="tile"><span class="tile-label">Average day</span><span class="tile-value money">{{ average_day|money }}</span>
-    <span class="tile-note">over {{ day_count }} days, {{ record.logged_days }} with spending</span></div>
+    <span class="tile-note">{{ daily_picked|join(", ") if daily_picked else "everything" }} · over {{ day_count }} days, {{ spent_days }} with spending</span></div>
   {% if ahead %}<div class="tile{{ ' over' if budget is not none and ahead > budget }}"><span class="tile-label">On pace for</span><span class="tile-value money">{{ ahead|money }}</span>
     <span class="tile-note">by the end of the month</span></div>{% endif %}
   {% endif %}

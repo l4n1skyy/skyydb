@@ -103,3 +103,14 @@ databases:
         description: Every bit with its tags.
       tag_counts:
         description: How many bits each tag has.
+  uni:
+    description: University - courses and their tasks (assignments, exams...) with deadlines and priorities. Day-to-day at /-/uni.
+    tables:
+      courses:
+        description: Your courses. Deleting one keeps its tasks, without a course.
+      tasks:
+        description: Assignments, exams, quizzes, readings. due is a date (YYYY-MM-DD); priority high/medium/low; status todo/doing/done (done stamps done_on); weight = % of the course grade, grade = your mark in %.
+      open_tasks:
+        description: Tasks not done yet, most urgent first.
+      course_progress:
+        description: Per course - open and done tasks, the next deadline and the weighted average of graded tasks.

@@ -205,6 +205,8 @@ def month_name(ym, short=False):
 def prepare_jinja2_environment(env):
     env.filters["nice_date"] = nice_date
     env.filters["days_ago"] = days_ago
+    env.filters["course_color"] = lambda cid: UNI_COLOURS[(int(cid or 0) - 1) % len(UNI_COLOURS)] if cid else "var(--muted)"
+    env.filters["short_due"] = short_due
     env.filters["num"] = num
     env.filters["plain"] = plain
     env.filters["money"] = money
@@ -328,7 +330,7 @@ def line(points, unit=""):
     )
 
 
-def combo(labels, tips, bars=(), lines=(), refs=(), fmt=num, faded_label="", estimate_label="estimate"):
+def combo(labels, tips, bars=(), lines=(), refs=(), fmt=num, faded_label="", estimate_label="estimate", label_all=False):
     """Columns and lines over time on one axis, with reference lines across (a budget, an average).
 
     labels: the x labels. tips: (value, label) per x for the tooltip, which lists every series
@@ -338,6 +340,9 @@ def combo(labels, tips, bars=(), lines=(), refs=(), fmt=num, faded_label="", est
     lines: [{"name", "color", "values" (None = no point), "recorded" ([bool]; a point that
     wasn't recorded gets no dot and a dashed line into it), "dashed" (True for a trend)}].
     refs: [{"name", "value", "style": "dashed" or "dotted"}].
+    When there are too many x labels to show them all, every other one is shown counting back
+    from the last. label_all shows every one (the days of a month); narrow screens then hide
+    every other one but keep the first and the last.
     """
     n = len(labels)
     totals = [sum(b["values"][i] for b in bars) for i in range(n)]
@@ -379,9 +384,13 @@ def combo(labels, tips, bars=(), lines=(), refs=(), fmt=num, faded_label="", est
     marks = [f'<div class="ref {r["style"]}" style="bottom:{y(r["value"]):.2f}%"></div>' for r in refs]
     hits = "".join(f'<span class="hitcol" style="left:{100 * i / n:.2f}%;width:{100 / n:.2f}%" {_tip(*tips[i])}></span>'
                    for i in range(n))
-    every = max(1, round(n / 14))
-    xls = "".join(f'<span class="xl{" alt" if (n - 1 - i) // every % 2 else ""}" style="left:{x(i):.2f}%">{escape(labels[i])}</span>'
-                  for i in range(n - 1, -1, -every))
+    if label_all:
+        shown_x = [(i, i % 2 == 1 and i != n - 1 or n % 2 == 0 and i == n - 2) for i in range(n)]
+    else:
+        every = max(1, round(n / 14))
+        shown_x = [(i, (n - 1 - i) // every % 2 == 1) for i in range(n - 1, -1, -every)]
+    xls = "".join(f'<span class="xl{" alt" if alt else ""}" style="left:{x(i):.2f}%">{escape(labels[i])}</span>'
+                  for i, alt in shown_x)
     keys = [f'<span class="key"><i class="estimate" style="--c:{b["color"]}"></i>{escape(b["name"])}</span>'
             if all(s == "estimate" for s in b.get("styles", ["solid"])) else
             f'<span class="key"><i style="background:{b["color"]}"></i>{escape(b["name"])}</span>' for b in bars]
@@ -453,9 +462,15 @@ async def home(request, datasette):
     days = {date.fromisoformat(r["date"]) for r in await rows(wo, "SELECT DISTINCT date FROM sets")}
     shuffle = int(request.args.get("shuffle", "0")) if request.args.get("shuffle", "").isdigit() else 0
     today = await day_summary(fi, date.today().isoformat(), await budget_lines(fi))
-    return await render(datasette, request, "app_home.html", page="home", counts=counts, upcoming=upcoming,
+    uni_open = await rows(datasette.get_database("uni"), "SELECT * FROM task_list")
+    uni_home = dict(semester=await semester_week(datasette.get_database("uni")), open=len(uni_open), next=sorted((t for t in uni_open if t["priority"] <= 2), key=lambda t: (t["priority"], t["due"] is None, t["due"] or ""))[:8],
+                    overdue=sum(t["days_left"] is not None and t["days_left"] < 0 for t in uni_open),
+                    week=sum(t["days_left"] is not None and 0 <= t["days_left"] <= 7 for t in uni_open),
+                    top=sum(t["priority"] <= 2 for t in uni_open))
+    return await render(datasette, request, "app_home.html", page="home", uni=uni_home, counts=counts, upcoming=upcoming,
                         learnt_week=learnt_week, streak=streaks(days), picks=await todays_words(zh, shuffle),
-                        shuffle=shuffle, fin=today, quote=await quote_of_the_day(datasette))
+                        shuffle=shuffle, fin=today, quote=await quote_of_the_day(datasette),
+                        today=dict(weekday=date.today().strftime("%A"), day=date.today().strftime("%d"), month=date.today().strftime("%m"), rest=date.today().strftime("%Y · %A")))
 
 
 def streaks(days):
@@ -1144,13 +1159,15 @@ async def finance_stats(fi, lines, pick):
                                      for c in compared], money)
     # Spent per day adds up only the categories you picked for it (daily_chart_categories),
     # or the daily budget's when you haven't picked any, or everything when there's neither.
-    # Averages per day count every day of the month so far, the days without spending too.
+    # The chart shows every day of the month, the ones still to come too; averages per day
+    # (the chart's line and the Average day tile) add up the same categories and count every
+    # day of the month so far, the days without spending too.
     first = date.fromisoformat(start)
-    last = date.today() if pick == this_month else date.fromisoformat(end) - timedelta(days=1)
-    days = [(first + timedelta(days=k)).isoformat() for k in range((last - first).days + 1)]
+    every_day = [(first + timedelta(days=k)).isoformat() for k in range((date.fromisoformat(end) - first).days)]
+    days = [d for d in every_day if d <= date.today().isoformat()]
     picked = await daily_chart_categories(fi, lines)
     wanted = {c.lower() for c in picked}
-    per_day = {d: {} for d in days}
+    per_day = {d: {} for d in every_day}
     for r in await rows(fi, """SELECT date, category, round(sum(amount), 2) AS spent FROM expenses
                                WHERE date >= :start AND date < :end GROUP BY date, category""",
                         {"start": start, "end": end}):
@@ -1159,7 +1176,8 @@ async def finance_stats(fi, lines, pick):
     totals = [round(sum(cats.values()), 2) for cats in per_day.values()]
     shown_total = sum(totals)
     average = round(shown_total / len(days), 2) if days and shown_total else None
-    tips = [(money(total), "\n".join([nice_date(d, True), *(f"{c}: {money(v)}" for c, v in sorted(cats.items(), key=lambda kv: -kv[1]))]))
+    tips = [("-", nice_date(d, True)) if d not in days else
+            (money(total), "\n".join([nice_date(d, True), *(f"{c}: {money(v)}" for c, v in sorted(cats.items(), key=lambda kv: -kv[1]))]))
             for (d, cats), total in zip(per_day.items(), totals)]
     refs = []
     # The daily budget line adds up the budget of the picked categories that have one
@@ -1172,11 +1190,11 @@ async def finance_stats(fi, lines, pick):
         refs.append({"name": "average", "value": average, "style": "dotted"})
     ctx.update(
         record=record, ahead=projection(record), compared=compared, day_count=len(days),
-        average_day=round(spent / len(days), 2) if days and spent else None,
+        average_day=average, spent_days=sum(1 for d, total in zip(every_day, totals) if d in days and total),
         left=round(budget - spent, 2) if budget is not None else None,
-        daily=[(d, total, cats) for (d, cats), total in zip(per_day.items(), totals)],
+        daily=[(d, total, cats) for (d, cats), total in zip(per_day.items(), totals) if d in days],
         daily_picked=picked, daily_picked_lower=wanted, daily_chosen=bool(await rows(fi, "SELECT 1 FROM daily_chart_categories LIMIT 1")),
-        daily_chart=combo([str(date.fromisoformat(d).day) for d in days], tips, fmt=money, refs=refs, bars=[{
+        daily_chart=combo([str(date.fromisoformat(d).day) for d in every_day], tips, fmt=money, refs=refs, label_all=True, bars=[{
             "name": ", ".join(picked) or "Spent", "color": "var(--spending)", "values": totals}]),
     )
     return ctx
@@ -2359,6 +2377,156 @@ async def quote_of_the_day(datasette):
     return min(found, key=lambda q: hashlib.sha1(f"{day}:quotes:{q['id']}".encode()).digest(), default=None)
 
 
+# --- Uni: courses, deadlines, assignments, priorities --------------------------------
+
+UNI_COLOURS = ["#cba6f7", "#a6e3a1", "#89b4fa", "#fab387", "#f5c2e7", "#94e2d5"]  # Mocha: one per course
+
+
+def short_due(iso):
+    """6 Nov"""
+    d = date.fromisoformat(iso)
+    return f"{d.day} {d.strftime('%b')}"
+
+
+def uni_group(days_left):
+    if days_left is None:
+        return "No deadline"
+    if days_left < 0:
+        return "Overdue"
+    if days_left == 0:
+        return "Today"
+    if days_left <= 7:
+        return "This week"
+    return "Later"
+
+
+async def semester_week(db):
+    """Where today falls in the semester: week number, its Monday-Sunday, and weeks in all"""
+    sem = await one(db, "SELECT * FROM semester WHERE id = 1")
+    if not sem:
+        return None
+    today = date.today()
+    days = (today - date.fromisoformat(sem["start"])).days
+    n = days // 7 + 1
+    brk = sem["break_after"]
+    on_break = bool(brk) and n == brk + 1
+    if brk and n > brk + 1:
+        n -= 1  # the break week isn't numbered
+    monday = today - timedelta(days=today.weekday())
+    return dict(name=sem["name"], n=n, total=sem["weeks"], on_break=on_break, before=days < 0, after=n > sem["weeks"],
+                start=monday.isoformat(), end=(monday + timedelta(days=6)).isoformat())
+
+
+async def uni(request, datasette):
+    db = datasette.get_database("uni")
+    courses = await rows(db, "SELECT * FROM course_progress")
+    kinds = await rows(db, "SELECT * FROM kinds ORDER BY position, id")
+    priorities = await rows(db, "SELECT * FROM priorities ORDER BY level")
+    view = request.args.get("view") if request.args.get("view") in ("courses", "add") else "tasks"
+    tasks = await rows(db, "SELECT * FROM task_list")
+    ctx = dict(page="uni", week=await semester_week(db), view=view, courses=courses, kinds=kinds, priorities=priorities, n_tasks=len(tasks))
+    editing = await one(db, "SELECT * FROM tasks WHERE id = ?", [request.args.get("edit", "")]) if request.args.get("edit", "").isdigit() else {}
+    if editing:
+        ctx.update(view="add", task=editing)
+    elif view == "add":
+        ctx["task"] = dict(course_id=int(request.args["course"]) if request.args.get("course", "").isdigit() else None)
+    elif view == "tasks":
+        pick = request.args.get("course", "")
+        if pick.isdigit():
+            keep = {r["id"] for r in await rows(db, "SELECT id FROM tasks WHERE course_id = ?", [int(pick)])}
+            tasks = [t for t in tasks if t["id"] in keep]
+            ctx["pick"] = int(pick) if any(c["id"] == int(pick) for c in courses) else None
+        groups = {}
+        for t in tasks:
+            groups.setdefault(uni_group(t["days_left"]), []).append(t)
+        ctx["done"] = await rows(db, "SELECT * FROM done_list" + (" WHERE course_id = ?" if ctx.get("pick") else ""), [ctx["pick"]] if ctx.get("pick") else [])
+        ctx["groups"] = [(g, groups[g]) for g in ("Overdue", "Today", "This week", "Later", "No deadline") if g in groups]
+        ctx["tiles"] = dict(
+            overdue=len(groups.get("Overdue", [])),
+            week=len(groups.get("Today", [])) + len(groups.get("This week", [])),
+            top=sum(t["priority"] <= 2 for t in tasks),
+            total=len(tasks))
+    return await render(datasette, request, "app_uni.html", **ctx)
+
+
+def _uni_number(text):
+    try:
+        return float(text) if text.strip() else None
+    except ValueError:
+        return None
+
+
+async def uni_save(request, datasette):
+    """Add a task, or change one (id given)"""
+    form = {k: v[0].strip() for k, v in parse_qs((await request.post_body()).decode(), keep_blank_values=True).items()}
+    task_id = form.get("id", "")
+    if not form.get("title"):
+        return back("/-/uni", view="add", error="A task needs a title.")
+    due = form.get("due", "")
+    try:
+        if due:
+            date.fromisoformat(due)
+    except ValueError:
+        return back("/-/uni", view="add", error="That deadline isn't a date.")
+    values = dict(
+        title=form["title"],
+        course_id=int(form["course_id"]) if form.get("course_id", "").isdigit() else None,
+        kind_id=int(form["kind_id"]) if form.get("kind_id", "").isdigit() else None,
+        due=due or None,
+        due_time=form.get("due_time", "") if due else "",
+        priority=int(form["priority"]) if form.get("priority", "") in ("1", "2", "3", "4", "5") else 3,
+        weight=_uni_number(form.get("weight", "")),
+        notes=form.get("notes", ""))
+
+    def write(conn):
+        if task_id:
+            return conn.execute(f"UPDATE tasks SET {', '.join(f'{c} = :{c}' for c in values)} WHERE id = :id",
+                                {**values, "id": task_id}).rowcount
+        conn.execute(f"INSERT INTO tasks ({', '.join(values)}) VALUES ({', '.join(':' + c for c in values)})", values)
+        return 1
+
+    if not await datasette.get_database("uni").execute_write_fn(write):
+        return back("/-/uni", error="That task isn't there any more.")
+    return back("/-/uni", msg=("Saved " if task_id else "Added ") + f"{values['title']}.")
+
+
+async def uni_delete(request, datasette):
+    """Finish a task (action done), bring it back (undo), or delete it for good"""
+    form = await request.post_vars()
+    db, task_id, action = datasette.get_database("uni"), form.get("id"), form.get("action", "delete")
+    if action == "done":
+        await db.execute_write("UPDATE tasks SET done_on = date('now', 'localtime') WHERE id = ?", [task_id])
+        msg = "Moved it to Done."
+    elif action == "undo":
+        await db.execute_write("UPDATE tasks SET done_on = NULL WHERE id = ?", [task_id])
+        msg = "Back on the list."
+    else:
+        await db.execute_write("DELETE FROM tasks WHERE id = ?", [task_id])
+        msg = "Removed the task."
+    return back("/-/uni", msg=msg, course=form.get("course"))
+
+
+async def uni_course(request, datasette):
+    """Make, change or delete a course (its tasks stay, without a course)"""
+    form = await request.post_vars()
+    action, cid = form.get("action"), form.get("id")
+    code, name, term = (form.get("code") or "").strip(), (form.get("name") or "").strip(), (form.get("term") or "").strip()
+    active = 1 if form.get("active") else 0
+    if action in ("create", "save") and not name:
+        return back("/-/uni", view="courses", error="A course needs a name.")
+    db = datasette.get_database("uni")
+    if action == "create":
+        await db.execute_write("INSERT INTO courses (code, name, term) VALUES (?, ?, ?)", [code, name, term])
+        msg = f"Added {name}."
+    elif action == "save":
+        await db.execute_write("UPDATE courses SET code = ?, name = ?, term = ?, active = ? WHERE id = ?", [code, name, term, active, cid])
+        msg = f"Saved {name}."
+    else:
+        await db.execute_write("DELETE FROM courses WHERE id = ?", [cid])
+        msg = "Deleted the course; its tasks stay."
+    return back("/-/uni", view="courses", msg=msg)
+
+
 # --- Datasette's own pages: match the theme -------------------------------------
 
 async def datasette_css(request, datasette):
@@ -2399,5 +2567,9 @@ def register_routes():
         (r"^/-/(?P<book>quotes|knowledge)/save$", notebook_save),
         (r"^/-/(?P<book>quotes|knowledge)/delete$", notebook_delete),
         (r"^/-/(?P<book>quotes|knowledge)/tags$", notebook_tags),
+        (r"^/-/uni$", uni),
+        (r"^/-/uni/save$", uni_save),
+        (r"^/-/uni/delete$", uni_delete),
+        (r"^/-/uni/course$", uni_course),
         (r"^/-/app/datasette\.css$", datasette_css),
     ]

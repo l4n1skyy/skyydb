@@ -73,3 +73,10 @@ databases:
           text: textarea
       bit_tags:
         facets: [tag]
+  uni:
+    tables:
+      tasks:
+        sort: due
+        facets: [course_id, status, priority]
+        column_types:
+          notes: textarea
