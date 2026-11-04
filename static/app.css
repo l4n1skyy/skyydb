@@ -824,3 +824,5 @@ table.costs td.n { width: 6.5em; }
 .brand { display: flex; align-items: center; }
 .brand img { height: 36px; width: auto; display: block; }
 .home-cols.no-side { grid-template-columns: minmax(0, 1fr); }
+.home-quote .credit { display: block; margin-top: 4px; font-size: 0.72rem; opacity: 0.7; text-decoration: none; }
+.home-quote .credit:hover { opacity: 1; text-decoration: underline; }

@@ -4,7 +4,11 @@
   <div class="home-top">
     <div class="home-date"><b>{{ today.day }}</b><b>{{ today.month }}</b><span>{{ today.rest }}</span></div>
     {% if quote and "quotes" in features %}
+    {% if quote.api %}
+    <div class="home-quote"><q>{{ quote.text }}</q> <span class="muted">— {{ quote.author }}</span> <a class="muted credit" href="https://zenquotes.io" target="_blank" rel="noopener">quotes by ZenQuotes</a></div>
+    {% else %}
     <a class="home-quote" href="/-/quotes"><q>{{ quote.text }}</q>{% if quote.author or quote.source %} <span class="muted">— {{ [quote.author, quote.source]|select|join(", ") }}</span>{% endif %}</a>
+    {% endif %}
     {% endif %}
   </div>
 

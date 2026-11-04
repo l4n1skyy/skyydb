@@ -2394,10 +2394,34 @@ async def notebook_tags(request, datasette):
     return back(f"/-/{book['name']}", view="tags", msg=msg)
 
 
+# The quote at the top of Home comes from ZenQuotes' free "quote of the day" (https://zenquotes.io),
+# the same all day. If it can't be reached, one of your own quotes is shown instead.
+QUOTE_API = "https://zenquotes.io/api/today"
+_qotd = {"day": None, "quote": None, "tried": 0.0}
+
+
+def _fetch_quote():
+    request = urllib.request.Request(QUOTE_API, headers={"User-Agent": "skyydb"})
+    with urllib.request.urlopen(request, timeout=4) as response:
+        first = json.load(response)[0]
+    if not first.get("q") or first.get("a") == "Zen Quotes":  # ZenQuotes' "too many requests" notice
+        raise ValueError("no quote")
+    return dict(text=first["q"], author=first.get("a", ""), source="", api=True)
+
+
 async def quote_of_the_day(datasette):
     """For the top of Home: one quote, the same all day"""
-    found = await rows(datasette.get_database("quotes"), "SELECT id, text, author, source FROM quotes")
     day = date.today().isoformat()
+    if _qotd["day"] == day and _qotd["quote"]:
+        return _qotd["quote"]
+    if time.time() - _qotd["tried"] > 600:  # after a failure, wait before asking again
+        _qotd["tried"] = time.time()
+        try:
+            _qotd.update(day=day, quote=await asyncio.to_thread(_fetch_quote))
+            return _qotd["quote"]
+        except (OSError, ValueError, KeyError, IndexError, json.JSONDecodeError):
+            pass
+    found = await rows(datasette.get_database("quotes"), "SELECT id, text, author, source FROM quotes")
     return min(found, key=lambda q: hashlib.sha1(f"{day}:quotes:{q['id']}".encode()).digest(), default=None)
 
 
