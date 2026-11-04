@@ -33,8 +33,11 @@ uv tool install --prerelease=allow 'datasette==1.0a41'
 git clone https://github.com/l4n1skyy/skyydb.git
 cd skyydb
 ln -s "$PWD/bin/db" ~/.local/bin/db     # any folder on your PATH works
-db                                       # creates the databases, starts the app, opens the browser
+db install finance workouts chinese      # pick what you want (leave it out for everything)
+db                                       # starts the app and opens the browser
 ```
+
+**Pick your features.** The features are `chinese`, `workouts`, `finance`, `uni`, `quotes` and `knowledge`. `db install finance workouts chinese` creates only those databases, and only those get a page and a spot on the dashboard. Run it again any time to change the choice; the data of a feature you drop stays in its file, just hidden. `db features` shows what's installed.
 
 The databases and `backups/` live inside this folder and stay out of git. Run `db autostart` once to keep the app running whenever you're logged in.
 
@@ -42,6 +45,8 @@ The databases and `backups/` live inside this folder and stay out of git. Run `d
 
 | Command | What it does |
 |---|---|
+| `db install [features]` | Chooses which features are installed (no names = all) |
+| `db features` | Lists which features are installed |
 | `db` | Starts the app if needed, backs up the databases and opens the browser |
 | `db status` | Shows whether it's running and a summary of your data |
 | `db import FILE` | Imports Chinese words from a CSV, or finance data from Google Sheets exports |

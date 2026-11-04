@@ -19,12 +19,12 @@
   <a class="brand" href="/" title="Home"><img src="/static/logo-small.png?v={{ v }}" alt="l4n1skyy"></a>
   <nav class="main-nav" aria-label="Pages">
     <a href="/"{% if page == "home" %} aria-current="page"{% endif %}>Home</a>
-    <a href="/-/chinese"{% if page == "chinese" %} aria-current="page"{% endif %}>Chinese</a>
-    <a href="/-/workouts"{% if page == "workouts" %} aria-current="page"{% endif %}>Workouts</a>
-    <a href="/-/finance"{% if page == "finance" %} aria-current="page"{% endif %}>Finance</a>
-    <a href="/-/quotes"{% if page == "quotes" %} aria-current="page"{% endif %}>Quotes</a>
-    <a href="/-/knowledge"{% if page == "knowledge" %} aria-current="page"{% endif %}>Knowledge</a>
-    <a href="/-/uni"{% if page == "uni" %} aria-current="page"{% endif %}>Uni</a>
+    {% if 'chinese' in features %}<a href="/-/chinese"{% if page == "chinese" %} aria-current="page"{% endif %}>Chinese</a>{% endif %}
+    {% if 'workouts' in features %}<a href="/-/workouts"{% if page == "workouts" %} aria-current="page"{% endif %}>Workouts</a>{% endif %}
+    {% if 'finance' in features %}<a href="/-/finance"{% if page == "finance" %} aria-current="page"{% endif %}>Finance</a>{% endif %}
+    {% if 'quotes' in features %}<a href="/-/quotes"{% if page == "quotes" %} aria-current="page"{% endif %}>Quotes</a>{% endif %}
+    {% if 'knowledge' in features %}<a href="/-/knowledge"{% if page == "knowledge" %} aria-current="page"{% endif %}>Knowledge</a>{% endif %}
+    {% if 'uni' in features %}<a href="/-/uni"{% if page == "uni" %} aria-current="page"{% endif %}>Uni</a>{% endif %}
   </nav>
   <script>
   // The menu can be rearranged by dragging; the order is remembered in this browser
@@ -52,12 +52,12 @@
   </script>
   <nav class="raw-nav" aria-label="Raw data">
     <span>raw data</span>
-    <a href="/chinese" title="Browse and edit every table in Datasette">chinese.db</a>
-    <a href="/workouts" title="Browse and edit every table in Datasette">workouts.db</a>
-    <a href="/finance" title="Browse and edit every table in Datasette">finance.db</a>
-    <a href="/quotes" title="Browse and edit every table in Datasette">quotes.db</a>
-    <a href="/knowledge" title="Browse and edit every table in Datasette">knowledge.db</a>
-    <a href="/uni" title="Browse and edit every table in Datasette">uni.db</a>
+    {% if 'chinese' in features %}<a href="/chinese" title="Browse and edit every table in Datasette">chinese.db</a>{% endif %}
+    {% if 'workouts' in features %}<a href="/workouts" title="Browse and edit every table in Datasette">workouts.db</a>{% endif %}
+    {% if 'finance' in features %}<a href="/finance" title="Browse and edit every table in Datasette">finance.db</a>{% endif %}
+    {% if 'quotes' in features %}<a href="/quotes" title="Browse and edit every table in Datasette">quotes.db</a>{% endif %}
+    {% if 'knowledge' in features %}<a href="/knowledge" title="Browse and edit every table in Datasette">knowledge.db</a>{% endif %}
+    {% if 'uni' in features %}<a href="/uni" title="Browse and edit every table in Datasette">uni.db</a>{% endif %}
   </nav>
 </header>
 <main>

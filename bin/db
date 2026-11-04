@@ -10,6 +10,12 @@ Usage:
   db import FILE   add Chinese words from a CSV, or finance data: a Google Forms
                    responses CSV (expenses, savings, shares) or a budget TSV.
                    Rows already in the database are skipped.
+  db install [FEATURE ...]
+                   choose what's installed: chinese workouts finance uni quotes knowledge
+                   (or "all"; none given = all). Only those get a database, a page and a
+                   spot on the dashboard. Run it again to change the choice; the data of a
+                   feature you drop stays in its file, just hidden.
+  db features      which features are installed
   db backup        copy the databases into backups/ now
   db status        is Datasette running, and a line about each database
   db autostart     start Datasette whenever you log in (a systemd user service)
@@ -33,7 +39,24 @@ from datetime import date, datetime
 from pathlib import Path
 
 DB_DIR = Path(os.environ.get("DB_DIR", Path(__file__).resolve().parent.parent))
-DATABASES = ("chinese", "workouts", "finance", "quotes", "knowledge", "uni")
+ALL_FEATURES = ("chinese", "workouts", "finance", "uni", "quotes", "knowledge")
+ALIASES = {"workout": "workouts", "gym": "workouts", "quote": "quotes", "university": "uni", "school": "uni"}
+FEATURES_FILE = DB_DIR / "features"
+
+
+def installed():
+    """The features that are installed: the words in the `features` file, or all of them."""
+    try:
+        words = FEATURES_FILE.read_text().split()
+    except OSError:
+        return ALL_FEATURES
+    return tuple(f for f in ALL_FEATURES if f in words)
+
+
+def need(name):
+    if name not in installed():
+        die(f"{name} isn't installed. Run: db install {' '.join(installed() + (name,))}")
+
 STATE_DIR = Path.home() / ".local/state/db"
 PID_FILE = STATE_DIR / "datasette.pid"
 LOG_FILE = STATE_DIR / "datasette.log"
@@ -88,6 +111,7 @@ def die(msg):
 def connect(name):
     if not DB_DIR.is_dir():
         die(f"{DB_DIR} doesn't exist (is the drive it lives on mounted?)")
+    need(name)
     conn = sqlite3.connect(DB_DIR / f"{name}.db")
     conn.row_factory = sqlite3.Row
     # Create anything missing and rebuild views/triggers from schema/<name>.sql
@@ -116,7 +140,7 @@ def backup(force=False):
     folder = DB_DIR / "backups"
     folder.mkdir(exist_ok=True)
     made = []
-    for name in DATABASES:
+    for name in installed():
         target = folder / f"{name}-{date.today()}.db"
         if target.exists() and not force:
             continue
@@ -151,9 +175,10 @@ def datasette_command():
 
 
 def prepare():
-    for name in DATABASES:
+    for name in installed():
         connect(name).close()
-    sync(quiet=True)
+    if "chinese" in installed():
+        sync(quiet=True)
     backup()
 
 
@@ -404,30 +429,64 @@ def import_budget(path):
 
 def status():
     print(f"Datasette: {'running at ' + URL if running() else 'not running'}")
-    with connect("chinese") as conn:
-        print(f"Chinese: {list_counts(conn)}")
-    conn.close()
-    with connect("workouts") as conn:
-        row = conn.execute("SELECT count(DISTINCT date) AS workouts, count(*) AS sets, max(date) AS last FROM sets").fetchone()
-        print(f"Workouts: {row['workouts']} workouts, {row['sets']} sets, last on {row['last'] or '-'}")
-    conn.close()
-    with connect("finance") as conn:
-        row = conn.execute("""SELECT coalesce(sum(CASE WHEN date >= date('now', 'localtime', 'start of month') THEN amount END), 0) AS month,
-                                     max(date) AS last FROM expenses""").fetchone()
-        budget = conn.execute("SELECT sum(amount) FROM budget WHERE period = 'monthly'").fetchone()[0]
-        print(f"Finance: RM{row['month']:,.2f} spent this month" + (f" of RM{budget:,.2f}" if budget else "")
-              + f", last expense on {row['last'] or '-'}")
-    conn.close()
-    for name, table, title in (("quotes", "quotes", "Quotes"), ("knowledge", "bits", "Knowledge")):
+    on = installed()
+    print(f"Installed: {' '.join(on)}")
+    for name in on:
         with connect(name) as conn:
-            n, tags = conn.execute(f"SELECT (SELECT count(*) FROM {table}), (SELECT count(*) FROM tags)").fetchone()
-            print(f"{title}: {n} {table}, {tags} tags")
+            if name == "chinese":
+                print(f"Chinese: {list_counts(conn)}")
+            elif name == "workouts":
+                row = conn.execute("SELECT count(DISTINCT date) AS workouts, count(*) AS sets, max(date) AS last FROM sets").fetchone()
+                print(f"Workouts: {row['workouts']} workouts, {row['sets']} sets, last on {row['last'] or '-'}")
+            elif name == "finance":
+                row = conn.execute("""SELECT coalesce(sum(CASE WHEN date >= date('now', 'localtime', 'start of month') THEN amount END), 0) AS month,
+                                             max(date) AS last FROM expenses""").fetchone()
+                budget = conn.execute("SELECT sum(amount) FROM budget WHERE period = 'monthly'").fetchone()[0]
+                print(f"Finance: RM{row['month']:,.2f} spent this month" + (f" of RM{budget:,.2f}" if budget else "")
+                      + f", last expense on {row['last'] or '-'}")
+            elif name in ("quotes", "knowledge"):
+                table = "quotes" if name == "quotes" else "bits"
+                n, tags = conn.execute(f"SELECT (SELECT count(*) FROM {table}), (SELECT count(*) FROM tags)").fetchone()
+                print(f"{name.capitalize()}: {n} {table}, {tags} tags")
+            elif name == "uni":
+                n, soon, over = conn.execute("""SELECT count(*), count(*) FILTER (WHERE days_left BETWEEN 0 AND 7),
+                                                       count(*) FILTER (WHERE days_left < 0) FROM task_list""").fetchone()
+                print(f"Uni: {n} tasks, {soon} due in the next week, {over} overdue")
         conn.close()
-    with connect("uni") as conn:
-        n, soon, over = conn.execute("""SELECT count(*), count(*) FILTER (WHERE days_left BETWEEN 0 AND 7),
-                                               count(*) FILTER (WHERE days_left < 0) FROM task_list""").fetchone()
-        print(f"Uni: {n} tasks, {soon} due in the next week, {over} overdue")
-    conn.close()
+
+
+def install(names):
+    """Choose the features: write the `features` file, create just those databases, restart the app."""
+    chosen = []
+    for raw in names:
+        name = ALIASES.get(raw.lower(), raw.lower())
+        if name == "all":
+            chosen = list(ALL_FEATURES)
+        elif name in ALL_FEATURES:
+            chosen.append(name)
+        else:
+            die(f"Unknown feature '{raw}'. Features: {' '.join(ALL_FEATURES)} (or all)")
+    chosen = [f for f in ALL_FEATURES if f in chosen or not names]
+    before = installed()
+    FEATURES_FILE.write_text("\n".join(chosen) + "\n")
+    for name in chosen:
+        connect(name).close()
+    print(f"Installed: {' '.join(chosen)}")
+    dropped = [f for f in before if f not in chosen]
+    if dropped:
+        print(f"Hidden (their data stays in {', '.join(f + '.db' for f in dropped)}): {' '.join(dropped)}")
+    if running():
+        restart()
+        print("Restarted the app.")
+    else:
+        print("Run `db` to start it.")
+
+
+def features():
+    on = installed()
+    for f in ALL_FEATURES:
+        print(f"  {'[x]' if f in on else '[ ]'} {f}")
+    print("Change it with: db install FEATURE ...")
 
 
 def main(args):
@@ -442,7 +501,12 @@ def main(args):
         serve()
     elif cmd == "autostart" and args[1:] in ([], ["off"]):
         autostart(on=not args[1:])
+    elif cmd == "install":
+        install(args[1:])
+    elif cmd == "features":
+        features()
     elif cmd == "sync":
+        need("chinese")
         sync()
     elif cmd == "import" and len(args) == 2:
         import_file(args[1])

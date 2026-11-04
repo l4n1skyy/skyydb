@@ -823,3 +823,4 @@ table.costs td.n { width: 6.5em; }
 
 .brand { display: flex; align-items: center; }
 .brand img { height: 36px; width: auto; display: block; }
+.home-cols.no-side { grid-template-columns: minmax(0, 1fr); }

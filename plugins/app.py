@@ -36,6 +36,21 @@ MUSCLE_GROUPS = ("Chest", "Back", "Shoulders", "Biceps", "Triceps", "Forearms", 
                  "Hamstrings", "Glutes", "Calves", "Legs", "Full body", "Cardio")
 _background = set()
 
+# Which features are installed: the words in the `features` file next to this folder's
+# README (written by `db install`); without the file, all of them.
+ALL_FEATURES = ("chinese", "workouts", "finance", "uni", "quotes", "knowledge")
+
+
+def installed_features():
+    try:
+        words = (ROOT / "features").read_text().split()
+    except OSError:
+        return ALL_FEATURES
+    return tuple(f for f in ALL_FEATURES if f in words)
+
+
+FEATURES = installed_features()
+
 
 # --- Spaced repetition sync ---------------------------------------------------
 
@@ -56,6 +71,8 @@ async def _sync_every_few_minutes(datasette):
 @hookimpl
 def startup(datasette):
     async def inner():
+        if "chinese" not in FEATURES:
+            return
         await sync(datasette)
         loop = asyncio.get_running_loop()
         _background.add(loop.create_task(_sync_every_few_minutes(datasette)))
@@ -124,7 +141,7 @@ def _asset_version():
 
 
 async def render(datasette, request, template, **context):
-    context.update(theme=theme(), ui_font=UI_FONT, v=_asset_version(), msg=request.args.get("msg"),
+    context.update(features=FEATURES, theme=theme(), ui_font=UI_FONT, v=_asset_version(), msg=request.args.get("msg"),
                    error=request.args.get("error"))
     return Response.html(await datasette.render_template(template, context, request=request))
 
@@ -453,24 +470,31 @@ def weeks_back(n):
 # --- Home -----------------------------------------------------------------------
 
 async def home(request, datasette):
-    await sync(datasette)
-    zh, wo, fi = datasette.get_database("chinese"), datasette.get_database("workouts"), datasette.get_database("finance")
-    counts = await list_counts(zh)
-    upcoming = await one(zh, "SELECT revise_on, count(*) AS words FROM learnt GROUP BY revise_on ORDER BY revise_on LIMIT 1")
-    learnt_week = (await one(zh, """SELECT count(*) AS n FROM study_log WHERE to_status = 'learnt'
-                                    AND date >= date('now', 'localtime', '-6 days', 'weekday 1')"""))["n"]
-    days = {date.fromisoformat(r["date"]) for r in await rows(wo, "SELECT DISTINCT date FROM sets")}
-    shuffle = int(request.args.get("shuffle", "0")) if request.args.get("shuffle", "").isdigit() else 0
-    today = await day_summary(fi, date.today().isoformat(), await budget_lines(fi))
-    uni_open = await rows(datasette.get_database("uni"), "SELECT * FROM task_list")
-    uni_home = dict(semester=await semester_week(datasette.get_database("uni")), open=len(uni_open), next=sorted((t for t in uni_open if t["priority"] <= 2), key=lambda t: (t["priority"], t["due"] is None, t["due"] or ""))[:8],
-                    overdue=sum(t["days_left"] is not None and t["days_left"] < 0 for t in uni_open),
-                    week=sum(t["days_left"] is not None and 0 <= t["days_left"] <= 7 for t in uni_open),
-                    top=sum(t["priority"] <= 2 for t in uni_open))
-    return await render(datasette, request, "app_home.html", page="home", uni=uni_home, counts=counts, upcoming=upcoming,
-                        learnt_week=learnt_week, streak=streaks(days), picks=await todays_words(zh, shuffle),
-                        shuffle=shuffle, fin=today, quote=await quote_of_the_day(datasette),
-                        today=dict(weekday=date.today().strftime("%A"), day=date.today().strftime("%d"), month=date.today().strftime("%m"), rest=date.today().strftime("%Y · %A")))
+    on = FEATURES
+    db = lambda name: datasette.get_database(name) if name in on else None
+    zh, wo, fi, un = db("chinese"), db("workouts"), db("finance"), db("uni")
+    ctx = dict(page="home", shuffle=int(request.args.get("shuffle", "0")) if request.args.get("shuffle", "").isdigit() else 0)
+    if zh:
+        await sync(datasette)
+        ctx.update(counts=await list_counts(zh), picks=await todays_words(zh, ctx["shuffle"]),
+                   upcoming=await one(zh, "SELECT revise_on, count(*) AS words FROM learnt GROUP BY revise_on ORDER BY revise_on LIMIT 1"),
+                   learnt_week=(await one(zh, """SELECT count(*) AS n FROM study_log WHERE to_status = 'learnt'
+                                    AND date >= date('now', 'localtime', '-6 days', 'weekday 1')"""))["n"])
+    if wo:
+        ctx["streak"] = streaks({date.fromisoformat(r["date"]) for r in await rows(wo, "SELECT DISTINCT date FROM sets")})
+    if fi:
+        ctx["fin"] = await day_summary(fi, date.today().isoformat(), await budget_lines(fi))
+    if un:
+        uni_open = await rows(un, "SELECT * FROM task_list")
+        ctx["uni"] = dict(semester=await semester_week(un), open=len(uni_open),
+                          next=sorted((t for t in uni_open if t["priority"] <= 2), key=lambda t: (t["priority"], t["due"] is None, t["due"] or ""))[:8],
+                          overdue=sum(t["days_left"] is not None and t["days_left"] < 0 for t in uni_open),
+                          week=sum(t["days_left"] is not None and 0 <= t["days_left"] <= 7 for t in uni_open),
+                          top=sum(t["priority"] <= 2 for t in uni_open))
+    if "quotes" in on:
+        ctx["quote"] = await quote_of_the_day(datasette)
+    ctx["today"] = dict(weekday=date.today().strftime("%A"), day=date.today().strftime("%d"), month=date.today().strftime("%m"), rest=date.today().strftime("%Y · %A"))
+    return await render(datasette, request, "app_home.html", **ctx)
 
 
 def streaks(days):
@@ -2540,12 +2564,25 @@ async def datasette_css(request, datasette):
 
 @hookimpl
 def register_routes():
-    return [
-        (r"^/$", home),
+    books = "|".join(f for f in ("quotes", "knowledge") if f in FEATURES)
+    routes = [(r"^/$", home), (r"^/-/app/datasette\.css$", datasette_css)]
+    for feature, paths in ROUTES.items():
+        if feature in FEATURES:
+            routes += paths
+    if books:
+        routes += [(rf"^/-/(?P<book>{books})$", notebook), (rf"^/-/(?P<book>{books})/save$", notebook_save),
+                   (rf"^/-/(?P<book>{books})/delete$", notebook_delete), (rf"^/-/(?P<book>{books})/tags$", notebook_tags)]
+    return routes
+
+
+ROUTES = {
+    "chinese": [
         (r"^/-/chinese$", chinese),
         (r"^/-/chinese/move$", chinese_move),
         (r"^/-/chinese/add$", chinese_add),
         (r"^/-/chinese/settings$", chinese_settings),
+    ],
+    "workouts": [
         (r"^/-/workouts$", workouts),
         (r"^/-/workouts/log$", workouts_log),
         (r"^/-/workouts/delete$", workouts_delete),
@@ -2553,6 +2590,8 @@ def register_routes():
         (r"^/-/workouts/plan/delete$", plan_delete),
         (r"^/-/workouts/schedule/week$", schedule_week),
         (r"^/-/workouts/schedule/date$", schedule_date),
+    ],
+    "finance": [
         (r"^/-/finance$", finance),
         (r"^/-/finance/expense$", expense_add),
         (r"^/-/finance/balances$", balances_save),
@@ -2563,13 +2602,11 @@ def register_routes():
         (r"^/-/finance/ibkr$", ibkr_settings_save),
         (r"^/-/finance/delete$", finance_delete),
         (r"^/-/finance/budget$", budget_save),
-        (r"^/-/(?P<book>quotes|knowledge)$", notebook),
-        (r"^/-/(?P<book>quotes|knowledge)/save$", notebook_save),
-        (r"^/-/(?P<book>quotes|knowledge)/delete$", notebook_delete),
-        (r"^/-/(?P<book>quotes|knowledge)/tags$", notebook_tags),
+    ],
+    "uni": [
         (r"^/-/uni$", uni),
         (r"^/-/uni/save$", uni_save),
         (r"^/-/uni/delete$", uni_delete),
         (r"^/-/uni/course$", uni_course),
-        (r"^/-/app/datasette\.css$", datasette_css),
-    ]
+    ],
+}
