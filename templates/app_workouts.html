@@ -36,37 +36,6 @@
       <span class="spacer"></span>
       {% if day != today %}<a class="btn small" href="?date={{ today }}">Today</a>{% endif %}
     </header>
-    {% if plan %}
-    <div class="plan-today">
-      <div class="plan-today-head">
-        <span class="badge">plan</span>
-        <h3>{{ plan.name }}</h3>
-        <span class="spacer"></span>
-        <a class="icon" href="?view=plans&amp;plan={{ plan.id }}">edit plan</a>
-      </div>
-      {% if plan.muscles %}<div class="chips">{% for m in plan.muscles %}<span class="chip">{{ m }}</span>{% endfor %}</div>{% endif %}
-      {% if plan.notes %}<p class="muted">{{ plan.notes }}</p>{% endif %}
-      {% if plan.exercises %}
-      <ol class="plan-items">
-        {% for e in plan.exercises %}
-        <li{% if e.sets and e.done >= e.sets %} class="done"{% endif %}>
-          <a href="?date={{ day }}&amp;exercise={{ e.exercise|urlencode }}&amp;reps={{ e.log_reps }}&amp;weight={{ e.log_weight|plain }}" title="Put this in the form">{{ e.exercise }}</a>
-          {% if e.muscle_group %}<span class="chip small">{{ e.muscle_group }}</span>{% endif %}
-          <span class="muted">{% if e.sets %}{{ e.sets }} × {% endif %}{{ e.reps or "?" }} reps{% if e.weight is not none %} @ {{ e.weight|num }} kg{% endif %}{% if e.notes %} · {{ e.notes }}{% endif %}</span>
-          <span class="spacer"></span>
-          <span class="progress">{{ e.done }}{% if e.sets %}/{{ e.sets }}{% endif %} set{{ "s" if (e.sets or e.done) != 1 }}</span>
-          <form method="post" action="/-/workouts/log">
-            <input type="hidden" name="date" value="{{ day }}"><input type="hidden" name="exercise" value="{{ e.exercise }}">
-            <input type="hidden" name="reps" value="{{ e.log_reps }}"><input type="hidden" name="weight" value="{{ e.log_weight|plain }}">
-            <button class="btn small"{% if not e.log_reps %} disabled title="Give this exercise reps in the plan to log it in one click"{% else %} title="Log {{ e.log_reps }} × {{ e.log_weight|num }} kg"{% endif %}>+ Log set</button>
-          </form>
-        </li>
-        {% endfor %}
-      </ol>
-      {% else %}<p class="muted">This plan has no exercises yet.</p>{% endif %}
-    </div>
-    {% elif rest_day %}<p class="plan-rest muted">Rest day in your plan.</p>
-    {% endif %}
     {% if groups %}
     <p class="muted">{{ groups|length }} exercise{{ "s" if groups|length != 1 }} · {{ total_sets }} set{{ "s" if total_sets != 1 }} · {{ total_volume|num }} kg volume</p>
     {% for g in groups %}

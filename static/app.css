@@ -872,3 +872,7 @@ table.costs td.n { width: 6.5em; }
   .home-workouts .workout-grid { grid-template-columns: 1fr 1fr; }
   .today-card { grid-column: 1 / -1; }
 }
+
+/* While a page is on its way (only shown if it takes a moment) */
+main { transition: opacity 0.2s; }
+main.loading { opacity: 0.45; }
