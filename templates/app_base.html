@@ -16,7 +16,7 @@
 </head>
 <body>
 <header class="top">
-  <a class="brand" href="/" title="Home"><img src="/static/logo-small.png?v={{ v }}" alt="l4n1skyy"></a>
+  <a class="brand" href="/" title="Home"><img src="{{ logo_uri }}" alt="l4n1skyy" decoding="sync"></a>
   <nav class="main-nav" aria-label="Pages">
     <a href="/"{% if page == "home" %} aria-current="page"{% endif %}>Home</a>
     {% if 'chinese' in features %}<a href="/-/chinese"{% if page == "chinese" %} aria-current="page"{% endif %}>Chinese</a>{% endif %}

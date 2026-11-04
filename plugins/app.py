@@ -6,6 +6,7 @@ Colours are Catppuccin Mocha on my own background (theme()); the font is the des
 """
 
 import asyncio
+import base64
 import hashlib
 import json
 import re
@@ -140,8 +141,21 @@ def _asset_version():
     return int(max((ROOT / "static" / f).stat().st_mtime for f in ("app.css", "app.js")))
 
 
+_LOGO = {}
+
+
+def _logo_uri():
+    """The top-bar logo as a data: URI, rebuilt only when the file changes. Inlined in the page, it is
+    there from the first paint, so it no longer flashes away while the browser refetches it on every page."""
+    f = ROOT / "static" / "logo-small.png"
+    stamp = f.stat().st_mtime
+    if _LOGO.get("stamp") != stamp:
+        _LOGO.update(stamp=stamp, uri="data:image/png;base64," + base64.b64encode(f.read_bytes()).decode())
+    return _LOGO["uri"]
+
+
 async def render(datasette, request, template, **context):
-    context.update(features=FEATURES, theme=theme(), ui_font=UI_FONT, v=_asset_version(), msg=request.args.get("msg"),
+    context.update(features=FEATURES, theme=theme(), ui_font=UI_FONT, v=_asset_version(), logo_uri=_logo_uri(), msg=request.args.get("msg"),
                    error=request.args.get("error"))
     return Response.html(await datasette.render_template(template, context, request=request))
 
