@@ -26,13 +26,13 @@ ALSO! fun fact, can connect ibkr and wise api directly to investments page. And 
 |---|---|
 | ![Chinese lists](docs/chinese.png) | ![Workout plans](docs/workouts.png) |
 
-| Finance | Work |
+| Quotes | Work |
 |---|---|
-| ![Finance investments](docs/finance.png) | ![Work tasks](docs/work.png) |
+| ![Quotes](docs/quotes.png) | ![Work tasks](docs/work.png) |
 
-| Quotes |
+| Finance |
 |---|
-| ![Quotes](docs/quotes.png) |
+| ![Finance investments](docs/finance.png) |
 
 ## Install
 
