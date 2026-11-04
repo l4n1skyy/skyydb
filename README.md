@@ -6,6 +6,10 @@ Choose what you like, leave what you dont 😛 also p.s. lowkey vibecoded but st
 
 ALSO! fun fact, can connect ibkr and wise api directly to investments page. And quotes are fetched from ZenQuotes through api too.
 
+<div align="center">
+  <h4>Built with ❤️ by <b>l4n1skyy</b></h4>
+</div>
+
 ## Table of contents
 
 - [Install](#install)
