@@ -5,7 +5,7 @@ A small local web app for personal trackers, each a SQLite database, built on [D
 - **Chinese vocabulary**: three lists (to learn, to revise, learnt) with simple spaced repetition.
 - **Workouts**: sets, plans, streaks, charts and personal records.
 - **Finance**: expenses against daily and monthly budgets, savings and shares.
-- **Uni**: courses and deadlines, ranked by priority.
+- **Work**: courses, tasks and deadlines, ranked by priority.
 - **Quotes** and **Knowledge**: notes worth keeping, with tags.
 
 ## Table of contents
@@ -24,9 +24,9 @@ A small local web app for personal trackers, each a SQLite database, built on [D
 |---|---|
 | ![Chinese lists](docs/chinese.png) | ![Workout plans](docs/workouts.png) |
 
-| Finance | Uni |
+| Finance | Work |
 |---|---|
-| ![Finance investments](docs/finance.png) | ![Uni tasks](docs/uni.png) |
+| ![Finance investments](docs/finance.png) | ![Work tasks](docs/work.png) |
 
 | Quotes |
 |---|
@@ -71,7 +71,7 @@ ln -s "$PWD/bin/skyydb" ~/.local/bin/skyydb   # any folder on your PATH works
 
 ## Choose your features
 
-The features are `chinese`, `workouts`, `finance`, `uni`, `quotes` and `knowledge`. Install just the ones you want:
+The features are `chinese`, `workouts`, `finance`, `work`, `quotes` and `knowledge`. Install just the ones you want:
 
 ```bash
 skyydb install finance workouts chinese

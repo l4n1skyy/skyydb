@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""skyydb: my SQLite databases (Chinese vocabulary, workouts, finance, quotes, knowledge bits, uni),
+"""skyydb: my SQLite databases (Chinese vocabulary, workouts, finance, quotes, knowledge bits, work),
 browsed with Datasette.
 
 Usage:
@@ -11,7 +11,7 @@ Usage:
                              responses CSV (expenses, savings, shares) or a budget TSV.
                              Rows already in the database are skipped.
   skyydb install [FEATURE ...]
-                             choose what's installed: chinese workouts finance uni quotes knowledge
+                             choose what's installed: chinese workouts finance work quotes knowledge
                              (or "all"; none given = all). Only those get a database, a page and a
                              spot on the dashboard. Run it again to change the choice; the data of a
                              feature you drop stays in its file, just hidden.
@@ -40,7 +40,12 @@ from pathlib import Path
 
 DB_DIR = Path(os.environ.get("DB_DIR", Path(__file__).resolve().parent.parent))
 ALL_FEATURES = ("chinese", "workouts", "finance", "uni", "quotes", "knowledge")
-ALIASES = {"workout": "workouts", "gym": "workouts", "quote": "quotes", "university": "uni", "school": "uni"}
+ALIASES = {"workout": "workouts", "gym": "workouts", "quote": "quotes", "work": "uni", "uni": "uni", "university": "uni", "school": "uni"}
+LABELS = {"uni": "work"}  # what the work feature is called on screen (its files are still uni.*)
+
+
+def label(f):
+    return LABELS.get(f, f)
 FEATURES_FILE = DB_DIR / "features"
 
 
@@ -55,7 +60,7 @@ def installed():
 
 def need(name):
     if name not in installed():
-        die(f"{name} isn't installed. Run: skyydb install {' '.join(installed() + (name,))}")
+        die(f"{label(name)} isn't installed. Run: skyydb install {' '.join(map(label, installed() + (name,)))}")
 
 STATE_DIR = Path.home() / ".local/state/skyydb"
 PID_FILE = STATE_DIR / "datasette.pid"
@@ -430,7 +435,7 @@ def import_budget(path):
 def status():
     print(f"Datasette: {'running at ' + URL if running() else 'not running'}")
     on = installed()
-    print(f"Installed: {' '.join(on)}")
+    print(f"Installed: {' '.join(map(label, on))}")
     for name in on:
         with connect(name) as conn:
             if name == "chinese":
@@ -451,7 +456,7 @@ def status():
             elif name == "uni":
                 n, soon, over = conn.execute("""SELECT count(*), count(*) FILTER (WHERE days_left BETWEEN 0 AND 7),
                                                                  count(*) FILTER (WHERE days_left < 0) FROM task_list""").fetchone()
-                print(f"Uni: {n} tasks, {soon} due in the next week, {over} overdue")
+                print(f"Work: {n} tasks, {soon} due in the next week, {over} overdue")
         conn.close()
 
 
@@ -465,16 +470,16 @@ def install(names):
         elif name in ALL_FEATURES:
             chosen.append(name)
         else:
-            die(f"Unknown feature '{raw}'. Features: {' '.join(ALL_FEATURES)} (or all)")
+            die(f"Unknown feature '{raw}'. Features: {' '.join(map(label, ALL_FEATURES))} (or all)")
     chosen = [f for f in ALL_FEATURES if f in chosen or not names]
     before = installed()
     FEATURES_FILE.write_text("\n".join(chosen) + "\n")
     for name in chosen:
         connect(name).close()
-    print(f"Installed: {' '.join(chosen)}")
+    print(f"Installed: {' '.join(map(label, chosen))}")
     dropped = [f for f in before if f not in chosen]
     if dropped:
-        print(f"Hidden (their data stays in {', '.join(f + '.db' for f in dropped)}): {' '.join(dropped)}")
+        print(f"Hidden (their data stays in {', '.join(f + '.db' for f in dropped)}): {' '.join(map(label, dropped))}")
     if running():
         restart()
         print("Restarted the app.")
@@ -485,7 +490,7 @@ def install(names):
 def features():
     on = installed()
     for f in ALL_FEATURES:
-        print(f"  {'[x]' if f in on else '[ ]'} {f}")
+        print(f"  {'[x]' if f in on else '[ ]'} {label(f)}")
     print("Change it with: skyydb install FEATURE ...")
 
 

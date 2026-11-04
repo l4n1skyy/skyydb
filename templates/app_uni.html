@@ -1,12 +1,12 @@
 {# Uni: tasks grouped by deadline, courses, sections (kinds + priorities), add/edit a task. See plugins/app.py (uni). #}
 {% extends "app_base.html" %}
-{% block title %}Uni{% endblock %}
+{% block title %}Work{% endblock %}
 {% macro due_text(t) %}{% if t.due %}{{ t.due|nice_date }}{% if t.due_time %} {{ t.due_time }}{% endif %} · {{ t.due|days_ago }}{% else %}no deadline{% endif %}{% endmacro %}
 {% macro week_text(w) %}{% if w.before %}Starts {{ w.start|nice_date }}{% elif w.on_break %}Break week{% elif w.after %}Semester over{% else %}Week {{ w.n }} of {{ w.total }}{% endif %}{% endmacro %}
 {% block main %}
 <div class="page-head">
-  <h1>Uni{% if week %} <span class="week-pill" title="{{ week.name }} · {{ week.start|nice_date }} to {{ week.end|nice_date }}">{{ week_text(week) }}</span>{% endif %}</h1>
-  <nav class="tabs" aria-label="Uni">
+  <h1>Work{% if week %} <span class="week-pill" title="{{ week.name }} · {{ week.start|nice_date }} to {{ week.end|nice_date }}">{{ week_text(week) }}</span>{% endif %}</h1>
+  <nav class="tabs" aria-label="Work">
     <div class="tab-group">
       <a href="/-/uni"{% if view == "tasks" %} aria-current="page"{% endif %}>Tasks <span class="count">{{ n_tasks }}</span></a>
       <a href="?view=courses"{% if view == "courses" %} aria-current="page"{% endif %}>Courses <span class="count">{{ courses|length }}</span></a>

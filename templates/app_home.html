@@ -91,7 +91,7 @@
 {% if 'uni' in features %}
   <aside class="panel home-uni">
     <header class="panel-head">
-      <h2><a href="/-/uni">Uni</a></h2>
+      <h2><a href="/-/uni">Work</a></h2>
       <span class="muted">{% if uni.semester and not uni.semester.before %}{% if uni.semester.on_break %}Break week{% elif uni.semester.after %}Semester over{% else %}Week {{ uni.semester.n }} of {{ uni.semester.total }}{% endif %} · {% endif %}{{ uni.top }} tasks</span>
     </header>
     <div class="home-picks">
