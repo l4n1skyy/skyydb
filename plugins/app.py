@@ -37,7 +37,7 @@ MUSCLE_GROUPS = ("Chest", "Back", "Shoulders", "Biceps", "Triceps", "Forearms", 
 _background = set()
 
 # Which features are installed: the words in the `features` file next to this folder's
-# README (written by `db install`); without the file, all of them.
+# README (written by `skyydb install`); without the file, all of them.
 ALL_FEATURES = ("chinese", "workouts", "finance", "uni", "quotes", "knowledge")
 
 

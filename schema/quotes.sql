@@ -1,4 +1,4 @@
--- Quotes, each with any number of tags. `db` applies this file every time it runs, so it
+-- Quotes, each with any number of tags. `skyydb` applies this file every time it runs, so it
 -- only creates what's missing; views and triggers are rebuilt so edits here take effect.
 -- knowledge.sql is the same thing for knowledge bits; plugins/app.py serves both.
 

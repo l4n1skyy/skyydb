@@ -1,6 +1,6 @@
 -- University: courses, and the tasks in them (documents, assignments, practicals, study,
 -- exams) with a deadline and one of five priorities. A finished task keeps a done_on date and moves to the Done section.
--- `db` applies this file every time it runs, so it only creates what's missing; views and
+-- `skyydb` applies this file every time it runs, so it only creates what's missing; views and
 -- triggers are rebuilt so edits here take effect.
 
 CREATE TABLE IF NOT EXISTS courses (

@@ -2,7 +2,7 @@
 -- accounts (balances), and your shares: the trades, the ringgit you converted to buy
 -- them (conversions) and their prices over time. Amounts are in ringgit (RM) unless a
 -- column says it's in the share's currency (usually US dollars).
--- `db` applies this file every time it runs, so it only creates what's missing;
+-- `skyydb` applies this file every time it runs, so it only creates what's missing;
 -- views and triggers are rebuilt so edits here take effect.
 
 -- Filled automatically from the expenses, the budget and the balances, so the

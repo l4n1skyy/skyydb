@@ -1,4 +1,4 @@
--- Knowledge bits: little notes worth keeping, each with any number of tags. `db` applies
+-- Knowledge bits: little notes worth keeping, each with any number of tags. `skyydb` applies
 -- this file every time it runs, so it only creates what's missing; views and triggers are
 -- rebuilt so edits here take effect. quotes.sql is the same thing for quotes.
 

@@ -1,4 +1,4 @@
--- Chinese vocabulary. `db` applies this file every time it runs, so it only
+-- Chinese vocabulary. `skyydb` applies this file every time it runs, so it only
 -- creates what's missing; views and triggers are rebuilt so edits here take effect.
 
 -- A word's status is its list: "to learn" -> "learnt" -> (after N days) "to revise" -> "learnt" ...

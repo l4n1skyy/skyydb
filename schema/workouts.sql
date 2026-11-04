@@ -1,6 +1,6 @@
 -- Workouts: one row per set. Sets of the same exercise on the same date are
 -- one exercise's sets; everything on the same date is one workout.
--- `db` applies this file every time it runs, so it only creates what's missing;
+-- `skyydb` applies this file every time it runs, so it only creates what's missing;
 -- views and triggers are rebuilt so edits here take effect.
 
 -- Filled automatically from the sets, so the add/edit forms can suggest names

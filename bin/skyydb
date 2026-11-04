@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
-"""db: my SQLite databases (Chinese vocabulary, workouts, finance, quotes, knowledge bits, uni),
+"""skyydb: my SQLite databases (Chinese vocabulary, workouts, finance, quotes, knowledge bits, uni),
 browsed with Datasette.
 
 Usage:
-  db [open]        sync, back up once a day, start Datasette and open it in the browser
-  db restart       stop and start Datasette again, without opening the browser
-  db stop          stop Datasette
-  db sync          move learnt words you haven't studied for N days to "to revise"
-  db import FILE   add Chinese words from a CSV, or finance data: a Google Forms
-                   responses CSV (expenses, savings, shares) or a budget TSV.
-                   Rows already in the database are skipped.
-  db install [FEATURE ...]
-                   choose what's installed: chinese workouts finance uni quotes knowledge
-                   (or "all"; none given = all). Only those get a database, a page and a
-                   spot on the dashboard. Run it again to change the choice; the data of a
-                   feature you drop stays in its file, just hidden.
-  db features      which features are installed
-  db backup        copy the databases into backups/ now
-  db status        is Datasette running, and a line about each database
-  db autostart     start Datasette whenever you log in (a systemd user service)
-  db autostart off stop doing that
-  db serve         run Datasette in the foreground (what the service runs)
+  skyydb [open]              sync, back up once a day, start Datasette and open it in the browser
+  skyydb restart             stop and start Datasette again, without opening the browser
+  skyydb stop                stop Datasette
+  skyydb sync                move learnt words you haven't studied for N days to "to revise"
+  skyydb import FILE         add Chinese words from a CSV, or finance data: a Google Forms
+                             responses CSV (expenses, savings, shares) or a budget TSV.
+                             Rows already in the database are skipped.
+  skyydb install [FEATURE ...]
+                             choose what's installed: chinese workouts finance uni quotes knowledge
+                             (or "all"; none given = all). Only those get a database, a page and a
+                             spot on the dashboard. Run it again to change the choice; the data of a
+                             feature you drop stays in its file, just hidden.
+  skyydb features            which features are installed
+  skyydb backup              copy the databases into backups/ now
+  skyydb status              is Datasette running, and a line about each database
+  skyydb autostart           start Datasette whenever you log in (a systemd user service)
+  skyydb autostart off       stop doing that
+  skyydb serve               run Datasette in the foreground (what the service runs)
 
 Everything lives in this repo's folder (the one above bin/); DB_DIR overrides it.
 """
@@ -55,20 +55,20 @@ def installed():
 
 def need(name):
     if name not in installed():
-        die(f"{name} isn't installed. Run: db install {' '.join(installed() + (name,))}")
+        die(f"{name} isn't installed. Run: skyydb install {' '.join(installed() + (name,))}")
 
-STATE_DIR = Path.home() / ".local/state/db"
+STATE_DIR = Path.home() / ".local/state/skyydb"
 PID_FILE = STATE_DIR / "datasette.pid"
 LOG_FILE = STATE_DIR / "datasette.log"
 DATASETTE = Path(shutil.which("datasette") or Path.home() / ".local/bin/datasette")
 PORT = 8001
 URL = f"http://127.0.0.1:{PORT}/"
 KEEP_BACKUPS = 14  # per database
-SERVICE = "db.service"
+SERVICE = "skyydb.service"
 UNIT_FILE = Path.home() / ".config/systemd/user" / SERVICE
 UNIT = """\
 [Unit]
-Description=Datasette for my databases (written by `db autostart`)
+Description=Datasette for my databases (written by `skyydb autostart`)
 # Give up after 5 failed starts in 5 minutes (e.g. the drive isn't mounted)
 StartLimitIntervalSec=5min
 StartLimitBurst=5
@@ -76,8 +76,8 @@ StartLimitBurst=5
 [Service]
 Type=exec
 Environment="DB_DIR={dir}"
-ExecStart="{db}" serve
-# Not after a clean exit: `db stop` ends it with SIGTERM
+ExecStart="{skyydb}" serve
+# Not after a clean exit: `skyydb stop` ends it with SIGTERM
 Restart=on-failure
 RestartSec=10
 
@@ -102,9 +102,9 @@ WORD_COLUMNS = {
 
 
 def die(msg):
-    print(f"db: {msg}", file=sys.stderr)
+    print(f"skyydb: {msg}", file=sys.stderr)
     if not sys.stderr.isatty():  # started from the app launcher
-        subprocess.run(["notify-send", "-u", "critical", "db", msg[:500]], check=False)
+        subprocess.run(["notify-send", "-u", "critical", "skyydb", msg[:500]], check=False)
     sys.exit(1)
 
 
@@ -186,13 +186,13 @@ def start():
     prepare()
     if not running():
         command = datasette_command()
-        if UNIT_FILE.exists():  # db autostart: let systemd run it
+        if UNIT_FILE.exists():  # skyydb autostart: let systemd run it
             systemctl("start", SERVICE)
             stopped = lambda: systemctl("-q", "is-active", SERVICE) != 0
         else:
             with open(LOG_FILE, "a") as log:
                 proc = subprocess.Popen(
-                    command, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True,
+                              command, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True,
                 )
             PID_FILE.write_text(str(proc.pid))
             stopped = lambda: proc.poll() is not None
@@ -219,7 +219,7 @@ def stop():
     except (OSError, ValueError):
         cmdline = b""
     if b"datasette" not in cmdline:
-        print("Datasette isn't running." if not running() else f"Datasette on port {PORT} wasn't started by db.")
+        print("Datasette isn't running." if not running() else f"Datasette on port {PORT} wasn't started by skyydb.")
         return
     os.kill(pid, signal.SIGTERM)
     PID_FILE.unlink(missing_ok=True)
@@ -238,7 +238,7 @@ def restart():
 def serve():
     prepare()
     command = datasette_command()
-    # Become Datasette, logging where `db open` logs; the pid stays the same, so `db stop` works too
+    # Become Datasette, logging where `skyydb open` logs; the pid stays the same, so `skyydb stop` works too
     sys.stdout.flush()
     log = os.open(LOG_FILE, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     os.dup2(log, 1)
@@ -253,14 +253,14 @@ def autostart(on):
             systemctl("-q", "disable", SERVICE)
             UNIT_FILE.unlink()
             systemctl("daemon-reload")
-        print("Datasette won't start when you log in any more (`db stop` stops it now).")
+        print("Datasette won't start when you log in any more (`skyydb stop` stops it now).")
         return
     UNIT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    UNIT_FILE.write_text(UNIT.format(db=Path(__file__).resolve(), dir=DB_DIR))
+    UNIT_FILE.write_text(UNIT.format(skyydb=Path(__file__).resolve(), dir=DB_DIR))
     systemctl("daemon-reload")
     systemctl("-q", "enable", SERVICE)
     if systemctl("-q", "is-active", SERVICE) != 0:
-        restart() if running() else start()  # hand a Datasette started by `db open` over to the service
+        restart() if running() else start()  # hand a Datasette started by `skyydb open` over to the service
     print(f"Datasette now starts when you log in (systemctl --user status {SERVICE}).")
 
 
@@ -271,7 +271,7 @@ def import_words(path):
     with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         mapping = {h: WORD_COLUMNS[k] for h in reader.fieldnames or []
-                   if (k := h.strip().lower().replace(" ", "_")) in WORD_COLUMNS}
+                             if (k := h.strip().lower().replace(" ", "_")) in WORD_COLUMNS}
         if "character" not in mapping.values():
             die(f"{path.name} needs a character (or Hanzi) column; it has: {', '.join(reader.fieldnames or [])}")
         ignored = [h for h in reader.fieldnames if h not in mapping]
@@ -282,7 +282,7 @@ def import_words(path):
                 continue
             if row.get("status"):
                 if row["status"].lower() not in STATUSES:
-                    die(f"line {n}: unknown status {row['status']!r} (use to learn, to revise or learnt)")
+                              die(f"line {n}: unknown status {row['status']!r} (use to learn, to revise or learnt)")
                 row["status"] = STATUSES[row["status"].lower()]
             # Blank optional fields: let the column default (or NULL) apply
             rows.append({k: v for k, v in row.items() if v or k in ("pinyin", "english", "notes")})
@@ -290,7 +290,7 @@ def import_words(path):
     with connect("chinese") as conn:
         for row in rows:
             if conn.execute("SELECT 1 FROM words WHERE character = ? AND pinyin = ?",
-                            (row["character"], row.get("pinyin", ""))).fetchone():
+                                      (row["character"], row.get("pinyin", ""))).fetchone():
                 skipped += 1
                 continue
             cols = ", ".join(row)
@@ -356,15 +356,15 @@ def import_finance(path):
             if kind == "expenses":
                 amount = money(col("Amount (MYR)"))
                 if not amount or amount < 0:
-                    raise ValueError("no amount")
+                              raise ValueError("no amount")
                 new["expenses"].append((day, col("Category") or "Other", amount, notes))
             elif kind == "savings" and account.lower() == "investment":
                 new["trades"].append((day, col("Ticker"), "buy", float(col("Number of Shares")),
-                                           float(col("Price per Share (USD)")), float(col("Commission (USD)") or 0), notes))
+                                                     float(col("Price per Share (USD)")), float(col("Commission (USD)") or 0), notes))
             elif kind == "savings":
                 amount = money(col("Amount (MYR)"))
                 if amount is None:
-                    raise ValueError("no amount")
+                              raise ValueError("no amount")
                 new["balances"].append((day, account or "Savings", amount, notes))
             else:
                 raise ValueError(f"unknown transaction type {col('Transaction Type')!r}")
@@ -379,8 +379,8 @@ def import_finance(path):
             added = 0
             for row in sorted(new[table], key=lambda row: row[0]):
                 if have[key(row)]:
-                    have[key(row)] -= 1
-                    continue
+                              have[key(row)] -= 1
+                              continue
                 conn.execute(f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", row)
                 added += 1
             print(f"{table.capitalize()}: added {added}, skipped {len(new[table]) - added} already in the database.")
@@ -440,17 +440,17 @@ def status():
                 print(f"Workouts: {row['workouts']} workouts, {row['sets']} sets, last on {row['last'] or '-'}")
             elif name == "finance":
                 row = conn.execute("""SELECT coalesce(sum(CASE WHEN date >= date('now', 'localtime', 'start of month') THEN amount END), 0) AS month,
-                                             max(date) AS last FROM expenses""").fetchone()
+                                                       max(date) AS last FROM expenses""").fetchone()
                 budget = conn.execute("SELECT sum(amount) FROM budget WHERE period = 'monthly'").fetchone()[0]
                 print(f"Finance: RM{row['month']:,.2f} spent this month" + (f" of RM{budget:,.2f}" if budget else "")
-                      + f", last expense on {row['last'] or '-'}")
+                                + f", last expense on {row['last'] or '-'}")
             elif name in ("quotes", "knowledge"):
                 table = "quotes" if name == "quotes" else "bits"
                 n, tags = conn.execute(f"SELECT (SELECT count(*) FROM {table}), (SELECT count(*) FROM tags)").fetchone()
                 print(f"{name.capitalize()}: {n} {table}, {tags} tags")
             elif name == "uni":
                 n, soon, over = conn.execute("""SELECT count(*), count(*) FILTER (WHERE days_left BETWEEN 0 AND 7),
-                                                       count(*) FILTER (WHERE days_left < 0) FROM task_list""").fetchone()
+                                                                 count(*) FILTER (WHERE days_left < 0) FROM task_list""").fetchone()
                 print(f"Uni: {n} tasks, {soon} due in the next week, {over} overdue")
         conn.close()
 
@@ -479,14 +479,14 @@ def install(names):
         restart()
         print("Restarted the app.")
     else:
-        print("Run `db` to start it.")
+        print("Run `skyydb` to start it.")
 
 
 def features():
     on = installed()
     for f in ALL_FEATURES:
         print(f"  {'[x]' if f in on else '[ ]'} {f}")
-    print("Change it with: db install FEATURE ...")
+    print("Change it with: skyydb install FEATURE ...")
 
 
 def main(args):
