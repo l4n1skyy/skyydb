@@ -1,12 +1,8 @@
 # skyydb
 
-A small local web app for personal trackers, each a SQLite database, built on [Datasette](https://datasette.io) in [Catppuccin Mocha](https://catppuccin.com/palette) colours. It runs on your own computer at http://127.0.0.1:8001.
+A small local web app for personal trackers, each a SQLite database, fully local and runs on your own computer at http://127.0.0.1:8001. Last time I used google sheets, but don't really feel comfortable having allat online yknow.
 
-- **Chinese vocabulary**: three lists (to learn, to revise, learnt) with simple spaced repetition.
-- **Workouts**: sets, plans, streaks, charts and personal records.
-- **Finance**: expenses against daily and monthly budgets, savings and shares.
-- **Work**: courses, tasks and deadlines, ranked by priority.
-- **Quotes** and **Knowledge**: notes worth keeping, with tags.
+Choose what you like, leave what you dont 😛
 
 ## Table of contents
 
