@@ -26,6 +26,10 @@ $$(".home-chinese .word.pick").forEach((card) => {
   });
 });
 
+// --- Quotes: the ZenQuotes switch saves as soon as it's ticked
+
+$(".zen-toggle input")?.addEventListener("change", (e) => e.target.form.submit());
+
 // --- Chart tooltips: any element with data-tip-v (value) and data-tip-l (label)
 
 const tip = $("#tip");

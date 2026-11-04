@@ -2312,6 +2312,8 @@ async def notebook(request, datasette):
     entries, tags = await entries_with_tags(db, book), await tag_counts(db, book)
     view = request.args.get("view") if request.args.get("view") in ("add", "tags") else "all"
     ctx = dict(page=book["name"], book=book, view=view, tags=tags, total=len(entries))
+    if book["name"] == "quotes":
+        ctx["zen"] = await zenquotes_on(datasette)
     editing = next((e for e in entries if str(e["id"]) == request.args.get("edit", "")), None)
     if editing:
         ctx.update(view="edit", entry=editing)
@@ -2394,8 +2396,10 @@ async def notebook_tags(request, datasette):
     return back(f"/-/{book['name']}", view="tags", msg=msg)
 
 
-# The quote at the top of Home comes from ZenQuotes' free "quote of the day" (https://zenquotes.io),
-# the same all day. If it can't be reached, one of your own quotes is shown instead.
+# The quote at the top of Home mixes your own quotes with ZenQuotes' free "quote of the day"
+# (https://zenquotes.io): each day is one or the other, the same all day. The switch is on
+# the Quotes page (setting `zenquotes` in quotes.db). If ZenQuotes can't be reached, or
+# you've no quotes of your own, the other source covers.
 QUOTE_API = "https://zenquotes.io/api/today"
 _qotd = {"day": None, "quote": None, "tried": 0.0}
 
@@ -2409,8 +2413,12 @@ def _fetch_quote():
     return dict(text=first["q"], author=first.get("a", ""), source="", api=True)
 
 
-async def quote_of_the_day(datasette):
-    """For the top of Home: one quote, the same all day"""
+async def zenquotes_on(datasette):
+    row = await one(datasette.get_database("quotes"), "SELECT value FROM settings WHERE key = 'zenquotes'")
+    return row.get("value", "on") != "off"
+
+
+async def zenquote_today():
     day = date.today().isoformat()
     if _qotd["day"] == day and _qotd["quote"]:
         return _qotd["quote"]
@@ -2421,8 +2429,30 @@ async def quote_of_the_day(datasette):
             return _qotd["quote"]
         except (OSError, ValueError, KeyError, IndexError, json.JSONDecodeError):
             pass
-    found = await rows(datasette.get_database("quotes"), "SELECT id, text, author, source FROM quotes")
-    return min(found, key=lambda q: hashlib.sha1(f"{day}:quotes:{q['id']}".encode()).digest(), default=None)
+    return None
+
+
+async def quote_of_the_day(datasette):
+    """For the top of Home: one quote, the same all day"""
+    day = date.today().isoformat()
+    own = await rows(datasette.get_database("quotes"), "SELECT id, text, author, source FROM quotes")
+    mine = min(own, key=lambda q: hashlib.sha1(f"{day}:quotes:{q['id']}".encode()).digest(), default=None)
+    if not await zenquotes_on(datasette):
+        return mine
+    # Which source today: a coin flip per day, or ZenQuotes alone when you have none of your own
+    zen_day = hashlib.sha1(f"{day}:source".encode()).digest()[0] % 2 == 0
+    if zen_day or not mine:
+        return await zenquote_today() or mine
+    return mine
+
+
+async def zenquotes_setting(request, datasette):
+    form = await request.post_vars()
+    value = "on" if form.get("on") else "off"
+    await datasette.get_database("quotes").execute_write(
+        "INSERT INTO settings (key, value) VALUES ('zenquotes', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", [value])
+    return back("/-/quotes", msg="ZenQuotes will be mixed into Home's quote of the day." if value == "on"
+                else "Home's quote of the day now comes from your own quotes only.")
 
 
 # --- Work: courses, deadlines, assignments, priorities --------------------------------
@@ -2593,6 +2623,8 @@ def register_routes():
     for feature, paths in ROUTES.items():
         if feature in FEATURES:
             routes += paths
+    if "quotes" in FEATURES:
+        routes.append((r"^/-/quotes/zenquotes$", zenquotes_setting))
     if books:
         routes += [(rf"^/-/(?P<book>{books})$", notebook), (rf"^/-/(?P<book>{books})/save$", notebook_save),
                    (rf"^/-/(?P<book>{books})/delete$", notebook_delete), (rf"^/-/(?P<book>{books})/tags$", notebook_tags)]

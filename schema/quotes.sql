@@ -12,6 +12,10 @@ CREATE TABLE IF NOT EXISTS quotes (
            CHECK (added GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')
 );
 
+-- Settings: zenquotes = on|off, whether Home's quote of the day sometimes comes from ZenQuotes
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT OR IGNORE INTO settings (key, value) VALUES ('zenquotes', 'on');
+
 CREATE TABLE IF NOT EXISTS tags (
     name TEXT PRIMARY KEY COLLATE NOCASE CHECK (trim(name) <> '')
 );

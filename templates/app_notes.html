@@ -21,6 +21,12 @@
 <div class="toolbar" role="search">
   <input type="search" id="note-q" placeholder="Search {{ book.many }}" autocomplete="off" aria-label="Search {{ book.many }}">
   <span class="spacer"></span>
+  {% if book.name == "quotes" %}
+  <form class="zen-toggle" method="post" action="/-/quotes/zenquotes">
+    <label class="check" title="Home's quote of the day is sometimes one from zenquotes.io"><input type="checkbox" name="on" value="on"{% if zen %} checked{% endif %}> Mix ZenQuotes into Home</label>
+    <noscript><button class="btn small">Save</button></noscript>
+  </form>
+  {% endif %}
   <span class="muted" id="note-shown" data-one="{{ book.one }}" data-many="{{ book.many }}">{{ entries|length }} {{ book.one if entries|length == 1 else book.many }}</span>
 </div>
 {% if tags %}
