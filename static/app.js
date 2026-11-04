@@ -4,6 +4,28 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
+// --- Tab / Shift+Tab cycles through the pages in the top menu (even from a form field)
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Tab" || e.ctrlKey || e.altKey || e.metaKey || e.defaultPrevented) return;
+  const links = $$(".main-nav a");
+  if (!links.length) return;
+  const i = links.findIndex((a) => a.getAttribute("aria-current") === "page");
+  const next = links[(i + (e.shiftKey ? -1 : 1) + links.length) % links.length];
+  e.preventDefault();
+  location.href = next.href;
+});
+
+// --- Home: today's words start face down; a click flips one over
+
+$$(".home-chinese .word.pick").forEach((card) => {
+  card.addEventListener("click", () => {
+    if (card.classList.contains("open") || card.classList.contains("flipping")) return;
+    card.classList.add("flipping");
+    setTimeout(() => { card.classList.add("open"); card.classList.remove("flipping"); }, 150);
+  });
+});
+
 // --- Chart tooltips: any element with data-tip-v (value) and data-tip-l (label)
 
 const tip = $("#tip");

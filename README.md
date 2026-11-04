@@ -49,4 +49,6 @@ The databases and `backups/` live inside this folder and stay out of git. Run `d
 - `templates/`, `static/`: the pages, styles and browser code.
 - `datasette.yaml`, `metadata.yaml`: Datasette settings.
 
+On the home page, today's Chinese words start face down: click one to flip it over. **Tab** and **Shift+Tab** cycle through the pages in the top menu, even from a form field.
+
 Datasette only listens on 127.0.0.1, so nothing outside your computer can reach the app. The **.db** links in the top bar open Datasette's own pages, where you can browse, query and edit every table.
