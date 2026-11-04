@@ -12,9 +12,11 @@ CREATE TABLE IF NOT EXISTS quotes (
            CHECK (added GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')
 );
 
--- Settings: zenquotes = on|off, whether Home's quote of the day sometimes comes from ZenQuotes
+-- Settings: zenquotes_percent = on how many days out of 100 Home's quote comes from ZenQuotes
+-- instead of your own quotes (0 = never). (`zenquotes` on|off is the older switch it replaced.)
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-INSERT OR IGNORE INTO settings (key, value) VALUES ('zenquotes', 'on');
+INSERT OR IGNORE INTO settings (key, value)
+SELECT 'zenquotes_percent', CASE WHEN (SELECT value FROM settings WHERE key = 'zenquotes') = 'off' THEN '0' ELSE '50' END;
 
 CREATE TABLE IF NOT EXISTS tags (
     name TEXT PRIMARY KEY COLLATE NOCASE CHECK (trim(name) <> '')

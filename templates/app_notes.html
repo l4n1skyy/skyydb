@@ -23,9 +23,10 @@
   <span class="spacer"></span>
   {% if book.name == "quotes" %}
   <form class="zen-toggle" method="post" action="/-/quotes/zenquotes">
-    <label class="check" title="Home's quote of the day is sometimes one from zenquotes.io"><input type="checkbox" name="on" value="on"{% if zen %} checked{% endif %}> Mix ZenQuotes into Home</label>
+    <label class="check" title="On how many days out of 100 Home's quote of the day comes from zenquotes.io (0 = never)">ZenQuotes on <input type="number" name="percent" min="0" max="100" step="5" value="{{ zen }}" aria-label="Percent of days"> % of days</label>
     <noscript><button class="btn small">Save</button></noscript>
   </form>
+  <form class="zen-add" method="post" action="/-/quotes/zenquote-add"><button class="btn small" title="Adds today's quote from zenquotes.io to your quotes, tagged the way yours are">+ Add today's ZenQuote</button></form>
   {% endif %}
   <span class="muted" id="note-shown" data-one="{{ book.one }}" data-many="{{ book.many }}">{{ entries|length }} {{ book.one if entries|length == 1 else book.many }}</span>
 </div>

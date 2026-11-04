@@ -2313,7 +2313,7 @@ async def notebook(request, datasette):
     view = request.args.get("view") if request.args.get("view") in ("add", "tags") else "all"
     ctx = dict(page=book["name"], book=book, view=view, tags=tags, total=len(entries))
     if book["name"] == "quotes":
-        ctx["zen"] = await zenquotes_on(datasette)
+        ctx["zen"] = await zenquotes_percent(datasette)
     editing = next((e for e in entries if str(e["id"]) == request.args.get("edit", "")), None)
     if editing:
         ctx.update(view="edit", entry=editing)
@@ -2413,9 +2413,10 @@ def _fetch_quote():
     return dict(text=first["q"], author=first.get("a", ""), source="", api=True)
 
 
-async def zenquotes_on(datasette):
-    row = await one(datasette.get_database("quotes"), "SELECT value FROM settings WHERE key = 'zenquotes'")
-    return row.get("value", "on") != "off"
+async def zenquotes_percent(datasette):
+    row = await one(datasette.get_database("quotes"), "SELECT value FROM settings WHERE key = 'zenquotes_percent'")
+    value = row.get("value", "50")
+    return min(100, max(0, int(value))) if value.isdigit() else 50
 
 
 async def zenquote_today():
@@ -2437,22 +2438,86 @@ async def quote_of_the_day(datasette):
     day = date.today().isoformat()
     own = await rows(datasette.get_database("quotes"), "SELECT id, text, author, source FROM quotes")
     mine = min(own, key=lambda q: hashlib.sha1(f"{day}:quotes:{q['id']}".encode()).digest(), default=None)
-    if not await zenquotes_on(datasette):
+    percent = await zenquotes_percent(datasette)
+    if percent <= 0:
         return mine
-    # Which source today: a coin flip per day, or ZenQuotes alone when you have none of your own
-    zen_day = hashlib.sha1(f"{day}:source".encode()).digest()[0] % 2 == 0
-    if zen_day or not mine:
+    # Which source today: ZenQuotes on `percent` days out of 100 (a fixed pick per day), or
+    # ZenQuotes alone when you have none of your own
+    roll = int.from_bytes(hashlib.sha1(f"{day}:source".encode()).digest()[:2], "big") % 100
+    if roll < percent or not mine:
         return await zenquote_today() or mine
     return mine
 
 
+STOP_WORDS = set("a an the and or but if of to in on at by for with from as is are was were be been it its this that these those "
+                 "i you he she we they me my your our their his her not no do does did have has had so than then there what who "
+                 "which when where how all any can will just about into out up more most one".split())
+
+
+def _words(text):
+    return [w for w in re.findall(r"[a-z']+", text.lower().replace("’", "'")) if w not in STOP_WORDS and len(w) > 2]
+
+
+async def guess_tag(db, text, author):
+    """Pick the tag your own quotes would give this one: the words it shares with the quotes
+    you've already tagged (naive Bayes), with a push to what you tagged the same author."""
+    import math
+    tagged = await rows(db, """SELECT q.text, q.author, l.tag FROM quotes q JOIN quote_tags l ON l.quote_id = q.id""")
+    if not tagged:
+        return None
+    seen, totals, per_tag, by_author = {}, {}, {}, {}
+    for q in tagged:
+        per_tag[q["tag"]] = per_tag.get(q["tag"], 0) + 1
+        for w in _words(q["text"]):
+            seen.setdefault(q["tag"], {}).setdefault(w, 0)
+            seen[q["tag"]][w] += 1
+            totals[q["tag"]] = totals.get(q["tag"], 0) + 1
+        if q["author"]:
+            by_author.setdefault(q["author"].lower(), {}).setdefault(q["tag"], 0)
+            by_author[q["author"].lower()][q["tag"]] += 1
+    vocab = len({w for counts in seen.values() for w in counts}) or 1
+    words, best, best_score = _words(text), None, None
+    for tag, n in per_tag.items():
+        score = math.log(n / len(tagged))
+        for w in words:
+            score += math.log((seen.get(tag, {}).get(w, 0) + 0.5) / (totals.get(tag, 0) + 0.5 * vocab))
+        score += 3 * by_author.get((author or "").lower(), {}).get(tag, 0) / max(1, sum(by_author.get((author or "").lower(), {}).values()))
+        if best_score is None or score > best_score:
+            best, best_score = tag, score
+    return best
+
+
 async def zenquotes_setting(request, datasette):
     form = await request.post_vars()
-    value = "on" if form.get("on") else "off"
+    percent = form.get("percent", "").strip()
+    if not percent.isdigit():
+        return back("/-/quotes", error="ZenQuotes' share must be a whole number from 0 to 100.")
+    percent = min(100, int(percent))
     await datasette.get_database("quotes").execute_write(
-        "INSERT INTO settings (key, value) VALUES ('zenquotes', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", [value])
-    return back("/-/quotes", msg="ZenQuotes will be mixed into Home's quote of the day." if value == "on"
-                else "Home's quote of the day now comes from your own quotes only.")
+        "INSERT INTO settings (key, value) VALUES ('zenquotes_percent', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", [str(percent)])
+    return back("/-/quotes", msg=("Home's quote of the day now comes from your own quotes only." if percent == 0
+                                  else f"ZenQuotes will be Home's quote on {percent}% of days."))
+
+
+async def zenquote_add(request, datasette):
+    """Quick add: today's ZenQuote into your own quotes, tagged the way yours are."""
+    db = datasette.get_database("quotes")
+    found = await zenquote_today()
+    if not found:
+        return back("/-/quotes", error="Couldn't reach ZenQuotes. Try again in a few minutes.")
+    if await one(db, "SELECT id FROM quotes WHERE lower(trim(text)) = lower(trim(?))", [found["text"]]):
+        return back("/-/quotes", msg="Today's ZenQuote is already in your quotes.")
+    tag = await guess_tag(db, found["text"], found["author"])
+
+    def write(conn):
+        cur = conn.execute("INSERT INTO quotes (text, author, source, notes) VALUES (?, ?, '', 'from ZenQuotes')",
+                           [found["text"], found["author"]])
+        if tag:
+            conn.execute("INSERT INTO quote_tags (quote_id, tag) VALUES (?, ?)", [cur.lastrowid, tag])
+
+    await db.execute_write_fn(write)
+    return back("/-/quotes", msg=f"Added \u201c{found['text'][:60]}{'…' if len(found['text']) > 60 else ''}\u201d by {found['author']}"
+                                 + (f", tagged {tag}." if tag else "."))
 
 
 # --- Work: courses, deadlines, assignments, priorities --------------------------------
@@ -2624,7 +2689,7 @@ def register_routes():
         if feature in FEATURES:
             routes += paths
     if "quotes" in FEATURES:
-        routes.append((r"^/-/quotes/zenquotes$", zenquotes_setting))
+        routes += [(r"^/-/quotes/zenquotes$", zenquotes_setting), (r"^/-/quotes/zenquote-add$", zenquote_add)]
     if books:
         routes += [(rf"^/-/(?P<book>{books})$", notebook), (rf"^/-/(?P<book>{books})/save$", notebook_save),
                    (rf"^/-/(?P<book>{books})/delete$", notebook_delete), (rf"^/-/(?P<book>{books})/tags$", notebook_tags)]

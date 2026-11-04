@@ -827,3 +827,5 @@ table.costs td.n { width: 6.5em; }
 .home-quote .credit { display: block; margin-top: 4px; font-size: 0.72rem; opacity: 0.7; text-decoration: none; }
 .home-quote .credit:hover { opacity: 1; text-decoration: underline; }
 .zen-toggle { margin: 0 14px 0 0; } .zen-toggle input { accent-color: var(--accent); }
+.zen-toggle input[type=number] { width: 4.2em; padding: 3px 6px; margin: 0 2px; }
+.zen-add { margin: 0 14px 0 0; }
