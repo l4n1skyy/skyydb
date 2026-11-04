@@ -8,7 +8,7 @@ A small local web app for personal trackers, each a SQLite database, built on [D
 - **Uni**: courses and deadlines, ranked by priority.
 - **Quotes** and **Knowledge**: notes worth keeping, with tags.
 
-[Install](#install) · [Choose features](#choose-your-features) · [Run it](#run-it) · [Commands](#commands)
+**Table of contents:** [Install](#install) · [Choose features](#choose-your-features) · [Run it](#run-it) · [Commands](#commands)
 
 ![Home](docs/home.png)
 
@@ -25,10 +25,6 @@ A small local web app for personal trackers, each a SQLite database, built on [D
 | ![Quotes](docs/quotes.png) |
 
 ## Install
-
-1. [Requirements](#1-requirements)
-2. [Datasette](#2-datasette)
-3. [skyydb](#3-skyydb)
 
 ### 1. Requirements
 
