@@ -30,14 +30,63 @@
       <a href="?view=budget"{% if view == "budget" %} aria-current="page"{% endif %}>Budget</a>
       <a href="?view=savings"{% if view == "savings" %} aria-current="page"{% endif %}>Savings</a>
       <a href="?view=investments"{% if view == "investments" %} aria-current="page"{% endif %}>Investments</a>
+    </div>
+    <div class="tab-group">
       <a href="?view=stats"{% if view == "stats" %} aria-current="page"{% endif %}>Stats</a>
+      <a href="?view=settings"{% if view == "settings" %} aria-current="page"{% endif %}>Settings</a>
     </div>
   </nav>
   <p class="refresh-status muted small-print" data-refresh-status role="status"></p>
 </div>
 <datalist id="category-list">{% for c in categories %}<option>{{ c }}</option>{% endfor %}</datalist>
 
-{% if view == "log" %}
+{% if view == "settings" %}
+<section class="panel settings-panel cat-settings">
+  <h2>Categories</h2>
+  <form class="cat-add" method="post" action="/-/finance/category" autocomplete="off">
+    <input type="hidden" name="action" value="add">
+    <input name="new" required placeholder="New category, e.g. Exercise" aria-label="New category">
+    <button class="btn small">Add</button>
+  </form>
+  <form id="cat-form" method="post" action="/-/finance/category" autocomplete="off">
+    <input type="hidden" name="action" value="rename">
+    <div class="table-scroll">
+    <table>
+      <thead><tr><th>Category</th><th class="n">Expenses</th><th class="n">Budget lines</th><th></th></tr></thead>
+      <tbody>
+      {% for c in category_rows %}
+      <tr>
+        <td><span class="cat-name">{{ c.name }}</span><input class="cat-edit" name="new_{{ loop.index0 }}" value="{{ c.name }}" required hidden><input type="hidden" name="old_{{ loop.index0 }}" value="{{ c.name }}"></td>
+        <td class="n">{{ c.expenses }}</td><td class="n">{{ c.budgets }}</td>
+        <td>{% if not c.expenses %}<button class="icon danger" name="delete" value="{{ c.name }}" formnovalidate title="Delete this category">delete</button>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="cat-actions">
+      <button type="button" class="btn small ghost" id="cat-edit-btn">Edit</button>
+      <button class="btn small primary" id="cat-save-btn" hidden>Save</button>
+      <button type="button" class="btn small ghost" id="cat-cancel-btn" hidden>Cancel</button>
+    </div>
+  </form>
+  <p class="muted small-print">Renaming a category to one that already exists merges them: its expenses and budget lines move over. A category with expenses can't be deleted, only merged into another.</p>
+</section>
+<script>
+(function () {
+  var form = document.getElementById("cat-form"), btns = ["cat-edit-btn", "cat-save-btn", "cat-cancel-btn"].map(function (i) { return document.getElementById(i); });
+  function edit(on) {
+    form.querySelectorAll(".cat-name").forEach(function (e) { e.hidden = on; });
+    form.querySelectorAll(".cat-edit").forEach(function (e) { e.hidden = !on; e.value = e.defaultValue; });
+    btns[0].hidden = on; btns[1].hidden = btns[2].hidden = !on;
+    if (on) form.querySelector(".cat-edit").focus();
+  }
+  btns[0].onclick = function () { edit(true); };
+  btns[2].onclick = function () { edit(false); };
+})();
+</script>
+
+{% elif view == "log" %}
 <div class="log-layout">
   <div class="side-col">
     <form class="panel log-form" method="post" action="/-/finance/expense" autocomplete="off">

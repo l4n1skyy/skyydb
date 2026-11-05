@@ -263,6 +263,11 @@ a.tile:hover { border-color: var(--axis); }
 .settings-form .levels { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
 .settings-form .levels legend { padding: 0; margin-bottom: 6px; font-size: 0.95rem; }
 
+.cat-add { display: flex; flex-direction: row; align-items: center; gap: 8px; margin-bottom: 14px; }
+.cat-add input { flex: 0 1 280px; min-width: 0; }
+.cat-edit { width: 100%; max-width: 280px; }
+.cat-actions { display: flex; gap: 8px; margin-top: 12px; }
+
 /* --- Workouts ---------------------------------------------------------------- */
 
 .log-layout { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 20px; align-items: start; }
@@ -831,7 +836,7 @@ table.costs td.n { width: 6.5em; }
 @keyframes flip-open { from { transform: rotateX(-90deg); } to { transform: rotateX(0); } }
 
 .brand { display: flex; align-items: center; }
-.brand img { height: 36px; width: auto; display: block; }
+.brand img { height: 40px; width: auto; display: block; }
 .home-cols.no-side { grid-template-columns: minmax(0, 1fr); }
 .home-quote .credit { display: block; margin-top: 4px; font-size: 0.72rem; opacity: 0.7; text-decoration: none; }
 .home-quote .credit:hover { opacity: 1; text-decoration: underline; }

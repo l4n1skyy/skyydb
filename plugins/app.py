@@ -1066,7 +1066,7 @@ async def category_names(fi):
 async def finance(request, datasette):
     fi = datasette.get_database("finance")
     view = request.args.get("view")
-    if view not in ("log", "budget", "savings", "investments", "stats"):
+    if view not in ("log", "budget", "savings", "investments", "stats", "settings"):
         view = "log"
     today = date.today().isoformat()
     lines = await budget_lines(fi)
@@ -1089,9 +1089,71 @@ async def finance(request, datasette):
         ctx.update(await finance_savings(fi, request.args.get("year") or ""))
     elif view == "investments":
         ctx.update(await finance_investments(fi, request.args.get("ticker"), request.args.get("range")))
+    elif view == "settings":
+        ctx.update(category_rows=await rows(fi, """
+            SELECT c.name,
+                   (SELECT count(*) FROM expenses e WHERE e.category = c.name) AS expenses,
+                   (SELECT count(*) FROM budget b WHERE b.category = c.name) AS budgets
+            FROM categories c ORDER BY 2 DESC, c.name COLLATE NOCASE"""))
     else:
         ctx.update(await finance_stats(fi, lines, request.args.get("month") or ""))
     return await render(datasette, request, "app_finance.html", **ctx)
+
+
+async def category_save(request, datasette):
+    """Settings: add a category, rename one (to an existing name = merge them) or delete an unused one"""
+    form = {k: v[0].strip() for k, v in parse_qs((await request.post_body()).decode(), keep_blank_values=True).items()}
+    action, name, new = form.get("action", ""), form.get("name", ""), form.get("new", "")
+    if form.get("delete"):
+        action, name = "delete", form["delete"]
+    renames = []
+    if action == "rename":  # the edit table: every row that changed
+        renames = [(form[k], form.get("new_" + k[4:], "")) for k in form if k.startswith("old_")]
+        renames = [(o, n) for o, n in renames if n and n != o]
+    fi = datasette.get_database("finance")
+    result = {}
+
+    def write(conn, name=name, new=new):
+        if action == "add":
+            if not new:
+                result["error"] = "Give the category a name."
+            elif conn.execute("SELECT 1 FROM categories WHERE name = ?", [new]).fetchone():
+                result["error"] = f"{new} already exists."
+            else:
+                conn.execute("INSERT INTO categories (name) VALUES (?)", [new])
+                result["msg"] = f"Added {new}."
+        elif action == "rename":
+            for name, new in renames:
+                conn.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", [new])
+                # a budget line or chart pick the target already has is kept, the old one dropped
+                conn.execute("DELETE FROM budget WHERE category = ? AND period IN (SELECT period FROM budget WHERE category = ?)", [name, new])
+                conn.execute("DELETE FROM daily_chart_categories WHERE category = ? AND EXISTS (SELECT 1 FROM daily_chart_categories WHERE category = ?)", [name, new])
+                conn.execute("UPDATE budget SET category = ? WHERE category = ?", [new, name])
+                conn.execute("UPDATE daily_chart_categories SET category = ? WHERE category = ?", [new, name])
+                conn.execute("UPDATE expenses SET category = ? WHERE category = ?", [new, name])
+                if name.lower() != new.lower():
+                    conn.execute("DELETE FROM categories WHERE name = ?", [name])
+                else:  # only the capitals changed
+                    conn.execute("UPDATE categories SET name = ? WHERE name = ?", [new, name])
+                result["msg"] = f"{name} is now {new}."
+            if not renames:
+                result["msg"] = "Nothing changed."
+            elif len(renames) > 1:
+                result["msg"] = f"Renamed {len(renames)} categories."
+        elif action == "delete":
+            if conn.execute("SELECT 1 FROM expenses WHERE category = ?", [name]).fetchone():
+                result["error"] = f"{name} has expenses: rename it into another category instead."
+            else:
+                conn.execute("DELETE FROM budget WHERE category = ?", [name])
+                conn.execute("DELETE FROM daily_chart_categories WHERE category = ?", [name])
+                conn.execute("DELETE FROM categories WHERE name = ?", [name])
+                result["msg"] = f"Deleted {name}."
+
+    try:
+        await fi.execute_write_fn(write)
+    except Exception as e:
+        result = {"error": f"Couldn't save: {e}"}
+    return back("/-/finance", view="settings", **result)
 
 
 async def finance_month(fi, month, lines):
@@ -2788,6 +2850,7 @@ ROUTES = {
         (r"^/-/finance/ibkr$", ibkr_settings_save),
         (r"^/-/finance/delete$", finance_delete),
         (r"^/-/finance/budget$", budget_save),
+        (r"^/-/finance/category$", category_save),
     ],
     "work": [
         (r"^/-/work$", uni),
