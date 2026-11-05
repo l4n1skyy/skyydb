@@ -490,7 +490,7 @@ async def home(request, datasette):
     ctx = dict(page="home", shuffle=int(request.args.get("shuffle", "0")) if request.args.get("shuffle", "").isdigit() else 0)
     if zh:
         await sync(datasette)
-        ctx.update(counts=await list_counts(zh), picks=await todays_words(zh, ctx["shuffle"]),
+        ctx.update(counts=await list_counts(zh), picks=await todays_words(zh, ctx["shuffle"]), flip=await home_flip(zh),
                    upcoming=await one(zh, "SELECT revise_on, count(*) AS words FROM learnt GROUP BY revise_on ORDER BY revise_on LIMIT 1"),
                    learnt_week=(await one(zh, """SELECT count(*) AS n FROM study_log WHERE to_status = 'learnt'
                                     AND date >= date('now', 'localtime', '-6 days', 'weekday 1')"""))["n"])
@@ -537,20 +537,42 @@ def streaks(days):
     return {"days": day_streak, "weeks": week_streak}
 
 
-async def todays_words(zh, shuffle=0):
-    """2 random words from To learn and 1 from To revise (a third from To learn if none are due).
+async def daily_settings(zh):
+    """(new words, revise words, HSK levels) for Today's words, from the settings table"""
+    found = {r["key"]: r["value"] for r in await rows(zh, "SELECT key, value FROM settings WHERE key LIKE 'daily_%'")}
 
-    The draw is fixed for the day (and the shuffle number), so Home shows the same words
-    until you study them: a word that leaves its list is replaced, the others stay put.
+    def count(key, default):
+        value = found.get(key, "")
+        return int(value) if value.isdigit() else default
+
+    levels = [int(x) for x in found.get("daily_hsk", "").split(",") if x.strip().isdigit()]
+    return count("daily_learn", 2), count("daily_revise", 1), levels
+
+
+async def home_flip(zh):
+    """Do Today's words start face down? (settings.home_flip, on unless switched off)"""
+    return (await one(zh, "SELECT value FROM settings WHERE key = 'home_flip'")).get("value") != "off"
+
+
+async def todays_words(zh, shuffle=0):
+    """Today's words: settings.daily_revise from To revise, the rest from To learn.
+
+    The new words can be limited to some HSK levels (settings.daily_hsk). If fewer words are
+    due for revision than asked for, To learn fills the gap. The draw is fixed for the day
+    (and the shuffle number), so Home shows the same words until you study them: a word that
+    leaves its list is replaced, the others stay put.
     """
     day = date.today().isoformat()
+    n_learn, n_revise, levels = await daily_settings(zh)
 
     def draw(words, n):
         return sorted(words, key=lambda w: hashlib.sha1(f"{day}:{shuffle}:{w['id']}".encode()).digest())[:n]
 
     fields = "id, character, pinyin, english, notes, type, category, hsk, status, last_studied"
-    revise = draw(await rows(zh, f"SELECT {fields} FROM words WHERE status = 'to revise'"), 1)
-    learn = draw(await rows(zh, f"SELECT {fields} FROM words WHERE status = 'to learn'"), 3 - len(revise))
+    revise = draw(await rows(zh, f"SELECT {fields} FROM words WHERE status = 'to revise'"), n_revise)
+    where = f" AND hsk IN ({','.join(str(l) for l in levels)})" if levels else ""
+    learn = draw(await rows(zh, f"SELECT {fields} FROM words WHERE status = 'to learn'{where}"),
+                 n_learn + n_revise - len(revise))
     return learn + revise
 
 
@@ -566,10 +588,13 @@ async def chinese(request, datasette):
     zh = datasette.get_database("chinese")
     counts = await list_counts(zh)
     tab = request.args.get("list")
-    if tab not in (*LISTS, "add", "stats"):
+    if tab not in (*LISTS, "add", "stats", "settings"):
         tab = "to-revise" if counts["to revise"] else "to-learn"
     interval = int((await one(zh, "SELECT value FROM settings WHERE key = 'revise_after_days'"))["value"])
+    n_learn, n_revise, levels = await daily_settings(zh)
     ctx = dict(page="chinese", tab=tab, counts=counts, moved=moved, interval=interval,
+               flip=await home_flip(zh), daily=dict(learn=n_learn, revise=n_revise, levels=levels),
+               hsk_levels=[r["hsk"] for r in await rows(zh, "SELECT DISTINCT hsk FROM words WHERE hsk IS NOT NULL ORDER BY hsk")],
                types=[r["name"] for r in await rows(zh, "SELECT name FROM types ORDER BY name")],
                categories=[r["name"] for r in await rows(zh, "SELECT name FROM categories ORDER BY name")])
     if tab in LISTS:
@@ -601,14 +626,11 @@ async def chinese_stats(zh):
         FROM study_log WHERE to_status = 'learnt' AND date >= :start GROUP BY week""", {"start": weeks[0]})
     by_week = {r["week"]: (r["learnt"], r["revised"]) for r in log}
     weekly = [(short_date(wk), list(by_week.get(wk, (0, 0)))) for wk in weeks]
-    upcoming = await rows(zh, """
-        SELECT revise_on, count(*) AS words, group_concat(character, ' ') AS characters
-        FROM learnt GROUP BY revise_on ORDER BY revise_on LIMIT 14""")
     return dict(
         hsk_chart=stacked_bars(hsk_items, STATUS_ORDER), hsk_items=hsk_items,
         cat_chart=stacked_bars(cat_items, STATUS_ORDER), cat_items=cat_items,
         weekly_chart=columns(weekly, ("newly learnt", "revised")), weekly=weekly,
-        upcoming=upcoming, status_names=STATUS_ORDER,
+        status_names=STATUS_ORDER,
     )
 
 
@@ -647,13 +669,25 @@ async def chinese_add(request, datasette):
 
 async def chinese_settings(request, datasette):
     form = await request.post_vars()
-    days = form.get("days", "")
-    if not days.isdigit() or int(days) < 1:
-        return back("/-/chinese", list="stats", error="The revise interval must be a whole number of days.")
-    await datasette.get_database("chinese").execute_write(
-        "UPDATE settings SET value = ? WHERE key = 'revise_after_days'", [str(int(days))])
+    zh = datasette.get_database("chinese")
+    numbers = {"days": 1, "daily_learn": 0, "daily_revise": 0}
+    for key, least in numbers.items():
+        if not form.get(key, "").isdigit() or int(form[key]) < least:
+            return back("/-/chinese", list="settings", error="Those settings must be whole numbers.")
+    if int(form["daily_learn"]) + int(form["daily_revise"]) < 1:
+        return back("/-/chinese", list="settings", error="Today's words needs at least one word.")
+    levels = sorted(int(k[4:]) for k in form if k.startswith("hsk_") and k[4:].isdigit())
+    flip = "on" if form.get("home_flip") else "off"
+    values = {"home_flip": flip, "revise_after_days": str(int(form["days"])), "daily_learn": str(int(form["daily_learn"])),
+              "daily_revise": str(int(form["daily_revise"])), "daily_hsk": ",".join(map(str, levels))}
+
+    def save(conn):
+        for key, value in values.items():
+            conn.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
+                         "ON CONFLICT (key) DO UPDATE SET value = excluded.value", [key, value])
+    await zh.execute_write_fn(save)
     await sync(datasette)
-    return back("/-/chinese", list="stats", msg=f"Learnt words now come back after {int(days)} days.")
+    return back("/-/chinese", list="settings", msg="Saved. Home's Today's words follows the new settings.")
 
 
 # --- Workouts -------------------------------------------------------------------

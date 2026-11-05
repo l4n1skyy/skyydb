@@ -12,6 +12,7 @@
     <div class="tab-group">
       <a href="?list=add"{% if tab == "add" %} aria-current="page"{% endif %}>+ Add a word</a>
       <a href="?list=stats"{% if tab == "stats" %} aria-current="page"{% endif %}>Stats</a>
+      <a href="?list=settings"{% if tab == "settings" %} aria-current="page"{% endif %}>Settings</a>
     </div>
   </nav>
 </div>
@@ -84,6 +85,22 @@
   <datalist id="categories">{% for c in categories %}<option>{{ c }}</option>{% endfor %}</datalist>
 </form>
 
+{% elif tab == "settings" %}
+<section class="panel settings-panel">
+  <form class="settings-form" method="post" action="/-/chinese/settings">
+    <label>New words for today
+      <input type="number" name="daily_learn" min="0" value="{{ daily.learn }}" class="days"></label>
+    <label>Revise words for today
+      <input type="number" name="daily_revise" min="0" value="{{ daily.revise }}" class="days"></label>
+    <label>Spaced repetition: revise after
+      <input type="number" name="days" min="1" value="{{ interval }}" class="days"> days</label>
+    <fieldset class="levels"><legend>New words come from HSK <span class="muted">(none ticked = every level)</span></legend>
+      {% for l in hsk_levels %}<label class="check"><input type="checkbox" name="hsk_{{ l }}" value="1"{% if l in daily.levels %} checked{% endif %}> HSK {{ l }}</label>{% endfor %}
+    </fieldset>
+    <label class="check"><input type="checkbox" name="home_flip" value="1"{% if flip %} checked{% endif %}> Home: words start face down and flip when clicked</label>
+    <button class="btn small">Save</button>
+  </form>
+</section>
 {% else %}
 <div class="tiles stats-tiles">
   {% for s in status_names %}
@@ -119,20 +136,6 @@
     </details>
   </section>
 
-  <section class="panel">
-    <h2>Coming up for revision</h2>
-    {% if upcoming %}
-    <table class="upcoming"><thead><tr><th>Date</th><th class="n">Words</th><th>Characters</th></tr></thead>
-    <tbody>{% for u in upcoming %}<tr><td>{{ u.revise_on|nice_date }} <span class="muted">{{ u.revise_on|days_ago }}</span></td><td class="n">{{ u.words }}</td><td class="chars" lang="zh-CN">{{ u.characters }}</td></tr>{% endfor %}</tbody></table>
-    {% else %}<p class="empty">Nothing learnt yet, so nothing is coming up.</p>{% endif %}
-
-    <h2 class="settings-head">Spaced repetition</h2>
-    <form class="inline-form" method="post" action="/-/chinese/settings">
-      <label>Learnt words come back to To revise after
-        <input type="number" name="days" min="1" value="{{ interval }}" class="days"> days</label>
-      <button class="btn small">Save</button>
-    </form>
-  </section>
 </div>
 {% endif %}
 {% endblock %}

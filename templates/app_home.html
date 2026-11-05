@@ -18,14 +18,14 @@
   <section class="panel home-chinese">
     <header class="panel-head">
       <h2><a href="/-/chinese">Chinese</a> <span class="muted">today's words</span></h2>
-      <a class="icon" href="/?shuffle={{ shuffle + 1 }}" title="Pick three other words">shuffle</a>
+      <a class="icon" href="/?shuffle={{ shuffle + 1 }}" title="Pick other words">shuffle</a>
     </header>
     <div class="home-row">
       {% if picks %}
       <div class="home-picks">
-        <div class="picks">
+        <div class="picks{% if not flip %} no-flip{% endif %}">
           {% for w in picks %}
-          <article class="word pick">
+          <article class="word pick{% if not flip %} open{% endif %}">
             <span class="badge{% if w.status == 'to revise' %} due{% endif %}">{{ w.status }}</span>
             <div class="hanzi" lang="zh-CN">{{ w.character }}</div>
             <div class="pinyin" lang="zh-Latn-pinyin">{{ w.pinyin }}</div>
