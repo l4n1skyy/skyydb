@@ -1,5 +1,7 @@
--- Workouts: one row per set. Sets of the same exercise on the same date are
--- one exercise's sets; everything on the same date is one workout.
+-- Workouts: one row per set, or per thing you did. Sets of the same exercise on
+-- the same date are one exercise's sets; everything on the same date is one workout.
+-- Only the exercise is needed: reps, weight and notes are there when you want
+-- the detail ("Bench press 8 x 60") and can stay empty when you don't ("Bouldering").
 -- `skyydb` applies this file every time it runs, so it only creates what's missing;
 -- views and triggers are rebuilt so edits here take effect.
 
@@ -11,8 +13,9 @@ CREATE TABLE IF NOT EXISTS sets (
     date     TEXT NOT NULL DEFAULT (date('now', 'localtime'))
              CHECK (date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
     exercise TEXT NOT NULL COLLATE NOCASE REFERENCES exercises (name) CHECK (trim(exercise) <> ''),
-    reps     INTEGER NOT NULL CHECK (reps > 0),
-    weight   REAL NOT NULL DEFAULT 0 CHECK (weight >= 0)  -- kg, 0 = bodyweight
+    reps     INTEGER CHECK (reps IS NULL OR reps > 0),    -- empty = not counted
+    weight   REAL NOT NULL DEFAULT 0 CHECK (weight >= 0), -- kg, 0 = bodyweight
+    notes    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS sets_date ON sets (date, exercise);
 CREATE INDEX IF NOT EXISTS sets_exercise ON sets (exercise, date);
@@ -35,7 +38,9 @@ BEGIN
 END;
 
 -- Plans: named workouts you plan ahead ("Push day"), each a list of exercises
--- with target sets, reps (a number or a range like "8-12") and weight.
+-- with target sets, reps (a number or a range like "8-12") and weight. All of
+-- that is optional: a plan can be just a name ("Bouldering"), or a list of
+-- exercise names without numbers.
 CREATE TABLE IF NOT EXISTS plans (
     id    INTEGER PRIMARY KEY,
     name  TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (trim(name) <> ''),
@@ -97,7 +102,7 @@ DROP VIEW IF EXISTS set_log;
 CREATE VIEW set_log AS
 SELECT id, date, exercise,
        ROW_NUMBER() OVER (PARTITION BY date, exercise ORDER BY id) AS set_no,
-       reps, weight, reps * weight AS volume
+       reps, weight, reps * weight AS volume, notes
 FROM sets
 ORDER BY date DESC, exercise, set_no;
 
@@ -108,9 +113,9 @@ SELECT date,
        CASE strftime('%w', date) WHEN '0' THEN 'Sun' WHEN '1' THEN 'Mon' WHEN '2' THEN 'Tue'
             WHEN '3' THEN 'Wed' WHEN '4' THEN 'Thu' WHEN '5' THEN 'Fri' ELSE 'Sat' END AS day,
        replace(group_concat(DISTINCT exercise), ',', ', ') AS exercises,
-       count(*) AS sets,
-       sum(reps) AS reps,
-       sum(reps * weight) AS volume
+       count(reps) AS sets,  -- entries without reps aren't sets
+       coalesce(sum(reps), 0) AS reps,
+       coalesce(sum(reps * weight), 0) AS volume
 FROM sets
 GROUP BY date
 ORDER BY date DESC;
@@ -120,7 +125,7 @@ DROP VIEW IF EXISTS records;
 CREATE VIEW records AS
 SELECT exercise,
        count(DISTINCT date) AS workouts,
-       count(*) AS sets,
+       count(reps) AS sets,
        max(weight) AS heaviest,
        (SELECT max(reps) FROM sets s2 WHERE s2.exercise = s.exercise AND s2.weight = max(s.weight)) AS reps_at_heaviest,
        max(reps) AS most_reps,

@@ -18,21 +18,22 @@ ALSO! fun fact, can connect ibkr and wise api directly to investments page. And 
   - [3. skyydb](#3-skyydb)
 - [Choose your features](#choose-your-features)
 - [Run it](#run-it)
+- [Settings](#settings)
 - [Commands](#commands)
 
 ![Home](docs/home.png)
 
-| Chinese | Workouts |
+| HSK | Workouts |
 |---|---|
-| ![Chinese lists](docs/chinese.png) | ![Workout plans](docs/workouts.png) |
+| ![HSK word lists](docs/chinese.png) | ![Workout plans](docs/workouts.png) |
 
 | Quotes | Work |
 |---|---|
 | ![Quotes](docs/quotes.png) | ![Work tasks](docs/work.png) |
 
-| Finance |
-|---|
-| ![Finance investments](docs/finance.png) |
+| Finance | Settings |
+|---|---|
+| ![Finance stats](docs/finance.png) | ![Settings](docs/settings.png) |
 
 ## Install
 
@@ -73,7 +74,7 @@ ln -s "$PWD/bin/skyydb" ~/.local/bin/skyydb   # any folder on your PATH works
 
 ## Choose your features
 
-The features are `chinese`, `workouts`, `finance`, `work`, `quotes` and `knowledge`. Install just the ones you want:
+The features are `chinese` (the HSK page), `workouts`, `finance`, `work`, `quotes` and `thoughts`. Install just the ones you want:
 
 ```bash
 skyydb install finance workouts chinese
@@ -87,6 +88,19 @@ Only those get a database, a page and a spot on the dashboard. Leave the names o
 skyydb             # starts the app and opens http://127.0.0.1:8001 in your browser
 skyydb autostart   # optional: start it whenever you log in (skyydb autostart off undoes it)
 ```
+
+Each page has a plain address: `/hsk`, `/workouts`, `/finance`, `/quotes`, `/thoughts`, `/work` and `/settings` (any case works, `/HSK` too). The raw data of each database is at `/<database>-db`, e.g. `/finance-db/expenses`.
+
+## Settings
+
+**Settings** (top right) is where you:
+
+- **rename pages** (the menu, their headings and Home use the new names) and **hide** them from the menu;
+- **lock pages** with a password: a locked page shows blurred in the menu, its raw data is locked too, and on Home its widget is a blank card with a lock. Opening any of them (or **Unlock** in the top right) asks for the password in a popup, and typing it once unlocks every locked page. They stay open for a few minutes after you last used the app (you choose how many); **Lock** in the top right locks them again, and so does restarting the app;
+- **choose Home's widgets**, switching each on or off;
+- **browse the raw data**: every database, opening Datasette's own pages (at `/<database>-db`) where you can see and edit every row.
+
+Settings are kept in `settings.json` in this folder (out of git; the password is stored only as a scrypt hash).
 
 ## Commands
 

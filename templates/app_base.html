@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,7 +10,7 @@
   {% for name, value in theme.vars.items() %}--{{ name }}: {{ value }};
   {% endfor %}--ui-font: {% if ui_font %}{{ ui_font|tojson }}, {% endif %}"Zpix", ui-monospace, monospace;
 }
-html { background: var(--bg); }
+html { background: var(--bg); scrollbar-gutter: stable; }
 </style>
 <link rel="stylesheet" href="/static/app.css?v={{ v }}">
 <script src="/static/app.js?v={{ v }}" defer></script>
@@ -19,13 +19,8 @@ html { background: var(--bg); }
 <header class="top">
   <a class="brand" href="/" title="Home"><img src="{{ logo_uri }}" alt="l4n1skyy" decoding="sync"></a>
   <nav class="main-nav" aria-label="Pages">
-    <a href="/"{% if page == "home" %} aria-current="page"{% endif %}>Home</a>
-    {% if 'chinese' in features %}<a href="/-/chinese"{% if page == "chinese" %} aria-current="page"{% endif %}>Chinese</a>{% endif %}
-    {% if 'workouts' in features %}<a href="/-/workouts"{% if page == "workouts" %} aria-current="page"{% endif %}>Workouts</a>{% endif %}
-    {% if 'finance' in features %}<a href="/-/finance"{% if page == "finance" %} aria-current="page"{% endif %}>Finance</a>{% endif %}
-    {% if 'quotes' in features %}<a href="/-/quotes"{% if page == "quotes" %} aria-current="page"{% endif %}>Quotes</a>{% endif %}
-    {% if 'knowledge' in features %}<a href="/-/knowledge"{% if page == "knowledge" %} aria-current="page"{% endif %}>Knowledge</a>{% endif %}
-    {% if 'work' in features %}<a href="/-/work"{% if page == "work" %} aria-current="page"{% endif %}>Work</a>{% endif %}
+    {% for p in nav %}<a href="{{ p.url }}"{% if page == p.key %} aria-current="page"{% endif %}{% if p.locked %} class="locked" title="Locked"{% endif %}><span class="nav-name">{{ p.name }}</span></a>
+    {% endfor %}
   </nav>
   <script>
   // The menu can be rearranged by dragging; the order is remembered in this browser
@@ -33,12 +28,15 @@ html { background: var(--bg); }
     const nav = document.querySelector(".main-nav");
     const KEY = "nav-order";
     const save = () => { try { localStorage.setItem(KEY, JSON.stringify([...nav.children].map((a) => a.getAttribute("href")))); } catch {} };
-    try {
-      for (const href of JSON.parse(localStorage.getItem(KEY) || "[]")) {
-        const a = [...nav.children].find((x) => x.getAttribute("href") === href);
-        if (a) nav.appendChild(a);
-      }
-    } catch {}
+    window.applyNavOrder = () => {
+      try {
+        for (const href of JSON.parse(localStorage.getItem(KEY) || "[]")) {
+          const a = [...nav.children].find((x) => x.getAttribute("href") === href);
+          if (a) nav.appendChild(a);
+        }
+      } catch {}
+    };
+    applyNavOrder();
     let dragged = null;
     nav.addEventListener("dragstart", (e) => { dragged = e.target.closest("a"); if (dragged) { e.dataTransfer.effectAllowed = "move"; dragged.classList.add("dragging"); } });
     nav.addEventListener("dragover", (e) => {
@@ -51,15 +49,11 @@ html { background: var(--bg); }
     nav.addEventListener("dragend", () => { dragged?.classList.remove("dragging"); dragged = null; save(); });
   })();
   </script>
-  <nav class="raw-nav" aria-label="Raw data">
-    <span>raw data</span>
-    {% if 'chinese' in features %}<a href="/chinese" title="Browse and edit every table in Datasette">chinese.db</a>{% endif %}
-    {% if 'workouts' in features %}<a href="/workouts" title="Browse and edit every table in Datasette">workouts.db</a>{% endif %}
-    {% if 'finance' in features %}<a href="/finance" title="Browse and edit every table in Datasette">finance.db</a>{% endif %}
-    {% if 'quotes' in features %}<a href="/quotes" title="Browse and edit every table in Datasette">quotes.db</a>{% endif %}
-    {% if 'knowledge' in features %}<a href="/knowledge" title="Browse and edit every table in Datasette">knowledge.db</a>{% endif %}
-    {% if 'work' in features %}<a href="/work" title="Browse and edit every table in Datasette">work.db</a>{% endif %}
-  </nav>
+  <div class="top-right">
+    {% if any_open %}<form method="post" action="/lock"><input type="hidden" name="next" value="{{ here }}"><button class="top-link lock-again" title="Lock the locked pages again">Lock</button></form>
+    {% elif locked %}<a class="top-link unlock-link" href="/?unlock={{ here|urlencode }}" title="Type the password to open the locked pages">Unlock</a>{% endif %}
+    <a class="top-link settings-link" href="/settings"{% if page == "settings" %} aria-current="page"{% endif %}>Settings</a>
+  </div>
 </header>
 <main>
 {% if msg %}<p class="flash" role="status">{{ msg }}</p>{% endif %}
@@ -67,5 +61,19 @@ html { background: var(--bg); }
 {% block main %}{% endblock %}
 </main>
 <div id="tip" role="tooltip" hidden><b></b><span></span></div>
+{% if lock_on %}
+{# The password popup: the Unlock button, a locked menu item and a locked Home card open it (app.js) #}
+<dialog class="unlock-dialog" id="unlock-dialog" aria-labelledby="unlock-title">
+  <form method="post" action="/unlock">
+    <h2 id="unlock-title"><span class="lock-glyph" aria-hidden="true"></span> Unlock</h2>
+    <input type="hidden" name="next" value="">
+    <div class="unlock-row">
+      <input type="password" name="password" autocomplete="current-password" required placeholder="Password" aria-label="Password">
+      <button class="btn primary">Unlock</button>
+    </div>
+    <p class="unlock-error" role="alert" hidden></p>
+  </form>
+</dialog>
+{% endif %}
 </body>
 </html>

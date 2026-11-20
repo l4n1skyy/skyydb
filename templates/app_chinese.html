@@ -1,17 +1,17 @@
 {% extends "app_base.html" %}
-{% block title %}Chinese{% endblock %}
+{% block title %}{{ names.chinese }}{% endblock %}
 {% block main %}
 <div class="page-head">
-  <h1>Chinese</h1>
-  <nav class="tabs" aria-label="Chinese">
+  <h1>{{ names.chinese }}</h1>
+  <nav class="tabs" aria-label="{{ names.chinese }}">
     <div class="tab-group">
       <a href="?list=to-revise"{% if tab == "to-revise" %} aria-current="page"{% endif %}>To revise <span class="count" data-count="to revise">{{ counts["to revise"] }}</span></a>
       <a href="?list=to-learn"{% if tab == "to-learn" %} aria-current="page"{% endif %}>To learn <span class="count" data-count="to learn">{{ counts["to learn"] }}</span></a>
       <a href="?list=learnt"{% if tab == "learnt" %} aria-current="page"{% endif %}>Learnt <span class="count" data-count="learnt">{{ counts["learnt"] }}</span></a>
+      <a href="?list=stats"{% if tab == "stats" %} aria-current="page"{% endif %}>Stats</a>
     </div>
     <div class="tab-group">
       <a href="?list=add"{% if tab == "add" %} aria-current="page"{% endif %}>+ Add a word</a>
-      <a href="?list=stats"{% if tab == "stats" %} aria-current="page"{% endif %}>Stats</a>
       <a href="?list=settings"{% if tab == "settings" %} aria-current="page"{% endif %}>Settings</a>
     </div>
   </nav>
@@ -43,7 +43,7 @@
 {% for w in words %}
   <article class="word" data-id="{{ w.id }}" data-hsk="{{ w.hsk or '' }}" data-cat="{{ w.category or '' }}"
            data-text="{{ w.character }} {{ w.pinyin }} {{ w.english }} {{ w.notes }}">
-    <a class="edit" href="/chinese/words/{{ w.id }}" title="Edit or delete this word">edit</a>
+    <a class="edit" href="/chinese-db/words/{{ w.id }}" title="Edit or delete this word">edit</a>
     <div class="hanzi" lang="zh-CN">{{ w.character }}</div>
     <div class="reveal">
       <div class="pinyin" lang="zh-Latn-pinyin">{{ w.pinyin }}</div>
@@ -53,7 +53,7 @@
     <div class="meta">{{ [w.type, w.category, ("HSK " ~ w.hsk) if w.hsk else ""]|select|join(" · ") }}</div>
     {% if tab == "to-revise" %}<div class="when">studied {{ w.last_studied|nice_date }} · {{ w.last_studied|days_ago }}</div>
     {% elif tab == "learnt" %}<div class="when">revise {{ w.revise_on|nice_date }} · {{ w.revise_on|days_ago }}</div>{% endif %}
-    <form class="moves" method="post" action="/-/chinese/move">
+    <form class="moves" method="post" action="/hsk/move">
       <input type="hidden" name="id" value="{{ w.id }}">
       <input type="hidden" name="list" value="{{ tab }}">
       {% if tab != "learnt" %}<button class="btn primary" name="to" value="learnt">Learnt</button>{% endif %}
@@ -68,7 +68,7 @@
 </p>
 
 {% elif tab == "add" %}
-<form class="panel form-grid" method="post" action="/-/chinese/add">
+<form class="panel form-grid" method="post" action="/hsk/add">
   <label class="wide">Character <input name="character" required lang="zh-CN" autofocus></label>
   <label>Pinyin <input name="pinyin" lang="zh-Latn-pinyin"></label>
   <label>English <input name="english"></label>
@@ -87,7 +87,7 @@
 
 {% elif tab == "settings" %}
 <section class="panel settings-panel">
-  <form class="settings-form" method="post" action="/-/chinese/settings">
+  <form class="settings-form" method="post" action="/hsk/settings">
     <label>New words for today
       <input type="number" name="daily_learn" min="0" value="{{ daily.learn }}" class="days"></label>
     <label>Revise words for today
@@ -97,7 +97,6 @@
     <fieldset class="levels"><legend>New words come from HSK <span class="muted">(none ticked = every level)</span></legend>
       {% for l in hsk_levels %}<label class="check"><input type="checkbox" name="hsk_{{ l }}" value="1"{% if l in daily.levels %} checked{% endif %}> HSK {{ l }}</label>{% endfor %}
     </fieldset>
-    <label class="check"><input type="checkbox" name="home_flip" value="1"{% if flip %} checked{% endif %}> Home: words start face down and flip when clicked</label>
     <button class="btn small">Save</button>
   </form>
 </section>

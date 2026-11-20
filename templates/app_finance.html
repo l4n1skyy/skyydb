@@ -1,10 +1,10 @@
 {% extends "app_base.html" %}
-{% block title %}Finance{% endblock %}
+{% block title %}{{ names.finance }}{% endblock %}
 {% block main %}
 {% macro bar(m) %}<span class="meter"><i style="width:{{ m.pct }}%"></i></span>{% endmacro %}
 {% macro left_text(m) %}{% if m.over %}<b class="over-text">{{ (-m.left)|money }} over</b>{% else %}{{ m.left|money }} left{% endif %}{% endmacro %}
 {% macro month_status(r, view) %}
-<form class="month-status" method="post" action="/-/finance/month">
+<form class="month-status" method="post" action="/finance/month">
   <input type="hidden" name="month" value="{{ r.month }}"><input type="hidden" name="view" value="{{ view }}">
   <span class="muted">{% if r.status == "none" %}Nothing logged{% else %}Logged on {{ r.logged_days }} of {{ r.days }} days{% endif %}{% if r.status == "current" %} so far{% endif %} ·
   {% if r.status == "current" %}counts in averages once it's over{% elif r.counted %}counts in averages{% else %}left out of averages{% endif %}{% if r.chosen is not none %} (your choice){% endif %}</span>
@@ -16,39 +16,39 @@
 </form>
 {% endmacro %}
 {% macro delete(table, id, what, view="", month="") %}
-<form method="post" action="/-/finance/delete" class="delete" data-confirm="Delete this {{ what }}?">
+<form method="post" action="/finance/delete" class="delete" data-confirm="Delete this {{ what }}?">
   <input type="hidden" name="table" value="{{ table }}"><input type="hidden" name="id" value="{{ id }}">
   <input type="hidden" name="view" value="{{ view }}"><input type="hidden" name="month" value="{{ month }}">
   <button class="icon danger" title="Delete this {{ what }}">delete</button>
 </form>
 {% endmacro %}
 <div class="page-head">
-  <h1>Finance</h1>
+  <h1>{{ names.finance }}</h1>
   <nav class="tabs" aria-label="Finance">
     <div class="tab-group">
       <a href="?view=log"{% if view == "log" %} aria-current="page"{% endif %}>Log</a>
       <a href="?view=budget"{% if view == "budget" %} aria-current="page"{% endif %}>Budget</a>
       <a href="?view=savings"{% if view == "savings" %} aria-current="page"{% endif %}>Savings</a>
       <a href="?view=investments"{% if view == "investments" %} aria-current="page"{% endif %}>Investments</a>
-    </div>
-    <div class="tab-group">
       <a href="?view=stats"{% if view == "stats" %} aria-current="page"{% endif %}>Stats</a>
+    </div>
+    <p class="refresh-status muted small-print" data-refresh-status role="status"></p>
+    <div class="tab-group">
       <a href="?view=settings"{% if view == "settings" %} aria-current="page"{% endif %}>Settings</a>
     </div>
   </nav>
-  <p class="refresh-status muted small-print" data-refresh-status role="status"></p>
 </div>
 <datalist id="category-list">{% for c in categories %}<option>{{ c }}</option>{% endfor %}</datalist>
 
 {% if view == "settings" %}
 <section class="panel settings-panel cat-settings">
   <h2>Categories</h2>
-  <form class="cat-add" method="post" action="/-/finance/category" autocomplete="off">
+  <form class="cat-add" method="post" action="/finance/category" autocomplete="off">
     <input type="hidden" name="action" value="add">
     <input name="new" required placeholder="New category, e.g. Exercise" aria-label="New category">
     <button class="btn small">Add</button>
   </form>
-  <form id="cat-form" method="post" action="/-/finance/category" autocomplete="off">
+  <form id="cat-form" method="post" action="/finance/category" autocomplete="off">
     <input type="hidden" name="action" value="rename">
     <div class="table-scroll">
     <table>
@@ -89,13 +89,13 @@
 {% elif view == "log" %}
 <div class="log-layout">
   <div class="side-col">
-    <form class="panel log-form" method="post" action="/-/finance/expense" autocomplete="off">
+    <form class="panel log-form" method="post" action="/finance/expense" autocomplete="off">
       <h2>Add an expense</h2>
       <label>Amount (RM) <input type="number" name="amount" id="amount" min="0.01" step="0.01" inputmode="decimal" value="{{ prefill.amount }}" required autofocus></label>
       <label>Category <input name="category" id="category" list="category-list" value="{{ prefill.category }}" required></label>
-      {% if categories %}<div class="chips pick-chips">{% for c in categories[:8] %}<button type="button" class="chip" data-category="{{ c }}">{{ c }}</button>{% endfor %}</div>{% endif %}
+      {% if categories %}<div class="chips pick-chips">{% for c in categories %}<button type="button" class="chip" data-category="{{ c }}">{{ c }}</button>{% endfor %}</div>{% endif %}
       <label>Notes <input name="notes" value="{{ prefill.notes }}" placeholder="what it was"></label>
-      <label>Date <input type="date" name="date" value="{{ day }}" required></label>
+      <label>Date <input type="text" name="date" value="{{ day }}" required inputmode="numeric" placeholder="DD/MM/YYYY" pattern="\d{2}/\d{2}/\d{4}" data-date-input></label>
       <button class="btn primary">Add expense</button>
     </form>
 
@@ -143,7 +143,7 @@
         <span class="e-notes">{{ e.notes }}</span>
         <span class="spacer"></span>
         <span class="e-amount">{{ e.amount|money }}</span>
-        <a class="icon" href="/finance/expenses/{{ e.id }}" title="Edit this expense">edit</a>
+        <a class="icon" href="/finance-db/expenses/{{ e.id }}" title="Edit this expense">edit</a>
         {{ delete("expenses", e.id, "expense") }}
       </li>
       {% endfor %}
@@ -177,8 +177,7 @@
   {% endif %}
 </div>
 
-<div class="budget-layout">
-  <div class="main-col">
+<div class="main-col budget-main">
   <section class="panel">
     <h2>By category</h2>
     {% if by_category %}
@@ -205,7 +204,7 @@
     {% else %}<p class="empty">No budget yet, and nothing spent this month. Set a budget below.</p>{% endif %}
   </section>
 
-  <form class="panel budget-editor" method="post" action="/-/finance/budget" autocomplete="off">
+  <form class="panel budget-editor" method="post" action="/finance/budget" autocomplete="off">
     <h2>Your budget</h2>
     <p class="muted small-print">The <b>daily</b> budget is what you plan to spend each day in those categories; the Log tab shows how much of it is left that day. The <b>monthly</b> budget covers the whole month. Empty rows are ignored.</p>
     <input type="hidden" name="month" value="{{ month }}">
@@ -234,24 +233,6 @@
       <button class="btn primary">Save budget</button>
     </div>
   </form>
-  </div>
-
-  <section class="panel">
-    <h2>Expenses <span class="muted">{{ summary.expenses }}</span></h2>
-    {% if days %}
-    <table class="expense-table">
-      {% for d in days %}
-      <tbody>
-        <tr class="day-row"><th colspan="2"><a href="?date={{ d.date }}">{{ d.date|nice_date }}</a></th><th class="n">{{ d.total|money }}</th><th></th></tr>
-        {% for e in d.expenses %}
-        <tr><td>{{ e.category }}</td><td class="muted">{{ e.notes }}</td><td class="n">{{ e.amount|money }}</td>
-          <td class="row-tools"><a class="icon" href="/finance/expenses/{{ e.id }}" title="Edit this expense">edit</a>{{ delete("expenses", e.id, "expense", "budget", month) }}</td></tr>
-        {% endfor %}
-      </tbody>
-      {% endfor %}
-    </table>
-    {% else %}<p class="empty">No expenses in {{ month|month_name }}.</p>{% endif %}
-  </section>
 </div>
 
 
@@ -280,10 +261,10 @@
 
 <div class="log-layout">
   <div class="side-col">
-    <form class="panel log-form" method="post" action="/-/finance/balances" autocomplete="off">
+    <form class="panel log-form" method="post" action="/finance/balances" autocomplete="off">
       <h2>Month-end balances</h2>
       <p class="muted small-print">Once a month, as it ends: what's in each account. Change what moved and save; the ones that didn't move are saved too, so the month counts as recorded. Shares aren't an account here: their value comes from your trades and their prices.</p>
-      <label>Date <input type="date" name="date" value="{{ checkin_date }}" required></label>
+      <label>Date <input type="text" name="date" value="{{ checkin_date }}" required inputmode="numeric" placeholder="DD/MM/YYYY" pattern="\d{2}/\d{2}/\d{4}" data-date-input></label>
       {% for b in latest %}
       <label>{{ b.account }}
         <input type="hidden" name="account" value="{{ b.account }}">
@@ -330,7 +311,7 @@
 
 <section class="panel connections">
   <details class="table-view"{% if not (ibkr.token and ibkr.query) %} open{% endif %}><summary>Connections</summary>
-    <form class="form-grid ibkr-form" method="post" action="/-/finance/ibkr" autocomplete="off">
+    <form class="form-grid ibkr-form" method="post" action="/finance/ibkr" autocomplete="off">
       <label>IBKR Flex token <input type="password" name="token" placeholder="{{ 'saved; paste a new one to change it' if ibkr.token else 'from Flex Web Service Configuration' }}"></label>
       <label>Query ID <input name="query" value="{{ ibkr.query }}" inputmode="numeric" placeholder="the number next to the query"></label>
       <label class="wide">Wise API token <input type="password" name="wise_token" placeholder="{{ 'saved; paste a new one to change it' if wise.token else 'read-only, from Wise → Settings → API tokens' }}"></label>
@@ -379,7 +360,7 @@
       <h2>Spent per day <span class="muted">{{ daily_picked|join(", ") if daily_picked else "everything" }}</span></h2>
       <details class="pick-categories">
         <summary class="btn small ghost">Categories</summary>
-        <form class="pick-form" method="post" action="/-/finance/daily-categories">
+        <form class="pick-form" method="post" action="/finance/daily-categories">
           <input type="hidden" name="month" value="{{ pick }}">
           <p class="muted small-print">The categories this chart adds up.{% if not daily_chosen %} Now: the daily budget's.{% endif %}</p>
           <div class="pick-list">

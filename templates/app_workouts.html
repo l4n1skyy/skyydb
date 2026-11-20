@@ -1,8 +1,8 @@
 {% extends "app_base.html" %}
-{% block title %}Workouts{% endblock %}
+{% block title %}{{ names.workouts }}{% endblock %}
 {% block main %}
 <div class="page-head">
-  <h1>Workouts</h1>
+  <h1>{{ names.workouts }}</h1>
   <nav class="tabs" aria-label="Workouts">
     <div class="tab-group">
       <a href="?view=log"{% if view == "log" %} aria-current="page"{% endif %}>Log</a>
@@ -15,18 +15,47 @@
 
 {% if view == "log" %}
 <div class="log-layout">
-  <form class="panel log-form" method="post" action="/-/workouts/log" autocomplete="off">
-    <h2>Log a set</h2>
-    <label>Exercise <input name="exercise" id="exercise" list="exercise-list" value="{{ prefill.exercise }}" required></label>
-    <div class="row">
-      <label>Reps <input type="number" name="reps" id="reps" min="1" step="1" value="{{ prefill.reps }}" required></label>
-      <label>Weight (kg) <input type="number" name="weight" id="weight" min="0" step="0.25" value="{{ prefill.weight }}" placeholder="0 = bodyweight"></label>
-    </div>
-    <label>Date <input type="date" name="date" value="{{ day }}" required></label>
-    <button class="btn primary">Log set</button>
-    <datalist id="exercise-list">{% for e in last_per_exercise %}<option>{{ e.exercise }}</option>{% endfor %}</datalist>
-    <script type="application/json" id="last-sets">{{ last_per_exercise|tojson }}</script>
-  </form>
+  <div class="side-col">
+    {% if plans %}
+    {# Small: the plan picker and its button on one line #}
+    <form class="panel plan-quick" method="post" action="/workouts/log-plan">
+      <h2>Log a whole plan</h2>
+      <input type="hidden" name="date" value="{{ day }}">
+      <div class="plan-quick-row">
+        <select name="plan" required aria-label="Plan">
+          {% if not plan %}<option value="">Pick a plan</option>{% endif %}
+          {% for p in plans %}<option value="{{ p.id }}"{% if plan and p.id == plan.id %} selected{% endif %}>{{ p.name }}{% if plan and p.id == plan.id %} (planned){% endif %}</option>{% endfor %}
+        </select>
+        <button class="btn" title="Logs the plan's sets on {{ day|nice_date }}, skipping anything already logged">Log plan</button>
+      </div>
+    </form>
+    {% endif %}
+
+    <form class="panel log-form" method="post" action="/workouts/log" autocomplete="off">
+      <h2>Log a workout</h2>
+      <label>Exercise or activity <input name="exercise" id="exercise" list="exercise-list" value="{{ prefill.exercise }}" required placeholder="Bench press, Bouldering, ..."></label>
+      <div class="set-rows">
+        <div class="set-row set-rows-head" aria-hidden="true"><span>Set</span><span>Reps</span><span>Weight (kg)</span><span class="icon" style="visibility: hidden">remove</span></div>
+        <ol id="set-rows">
+          {% for s in prefill.sets %}
+          <li class="set-row">
+            <span class="set-idx">{{ loop.index }}</span>
+            <input type="number" name="reps" min="1" step="1" value="{{ s.reps }}" placeholder="reps" aria-label="Reps">
+            <input type="number" name="weight" min="0" step="0.25" value="{{ s.weight }}" placeholder="kg" aria-label="Weight in kg">
+            <button type="button" class="icon danger" data-remove-set title="Remove this set">remove</button>
+          </li>
+          {% endfor %}
+        </ol>
+        <button type="button" class="btn small" id="add-set">+ Add set</button>
+      </div>
+      <label>Notes <input name="notes" id="notes" value="{{ prefill.notes }}" placeholder="optional"></label>
+      <label>Date <input type="text" name="date" value="{{ day }}" required inputmode="numeric" placeholder="DD/MM/YYYY" pattern="\d{2}/\d{2}/\d{4}" data-date-input></label>
+      <button class="btn primary" id="log-submit">Log it</button>
+      <datalist id="exercise-list">{% for e in last_per_exercise %}<option>{{ e.exercise }}</option>{% endfor %}</datalist>
+      <script type="application/json" id="log-data">{{ log_data|tojson }}</script>
+    </form>
+
+  </div>
 
   <section class="panel day">
     <header class="day-head">
@@ -37,45 +66,56 @@
       {% if day != today %}<a class="btn small" href="?date={{ today }}">Today</a>{% endif %}
     </header>
     {% if groups %}
-    <p class="muted">{{ groups|length }} exercise{{ "s" if groups|length != 1 }} · {{ total_sets }} set{{ "s" if total_sets != 1 }} · {{ total_volume|num }} kg volume</p>
+    <p class="muted">{{ groups|length }} exercise{{ "s" if groups|length != 1 }}{% if total_sets %} · {{ total_sets }} set{{ "s" if total_sets != 1 }}{% endif %}{% if total_volume %} · {{ total_volume|num }} kg volume{% endif %}</p>
+    {% macro entry_tools(s) %}
+          <span class="spacer"></span>
+          <a class="icon" href="/workouts-db/sets/{{ s.id }}" title="Edit this entry">edit</a>
+          <form method="post" action="/workouts/delete" class="delete">
+            <input type="hidden" name="id" value="{{ s.id }}">
+            <button class="icon danger" title="Delete this entry">delete</button>
+          </form>
+    {% endmacro %}
     {% for g in groups %}
+    {# A lone entry without reps ("Bouldering") is just done: its edit/delete sit on the name's row #}
+    {% set lone = g.sets[0] if g.sets|length == 1 and not g.sets[0].reps else none %}
     <div class="exercise">
-      <div class="exercise-head">
+      <div class="exercise-head{% if lone %} lone{% endif %}">
         <h3>{{ g.exercise }}</h3>
-        <span class="muted">{{ g.sets|length }} set{{ "s" if g.sets|length != 1 }} · {{ g.reps }} reps{% if g.volume %} · {{ g.volume|num }} kg{% endif %}</span>
-        <span class="spacer"></span>
-        {% set s = g.sets[-1] %}
-        <form method="post" action="/-/workouts/log">
-          <input type="hidden" name="date" value="{{ day }}"><input type="hidden" name="exercise" value="{{ g.exercise }}">
-          <input type="hidden" name="reps" value="{{ s.reps }}"><input type="hidden" name="weight" value="{{ s.weight|plain }}">
-          <button class="btn small" title="Log another {{ s.reps }} × {{ s.weight|num }} kg">+ Same again</button>
-        </form>
+        {% if g.counted %}<span class="muted">{{ g.counted }} set{{ "s" if g.counted != 1 }} · {{ g.reps }} reps{% if g.volume %} · {{ g.volume|num }} kg{% endif %}</span>{% endif %}
+        {% if lone %}
+          {% if lone.weight %}<span class="set-val">{{ lone.weight|num }} kg</span>{% endif %}
+          {% if lone.notes %}<span class="set-note muted">{{ lone.notes }}</span>{% endif %}
+          {{ entry_tools(lone) }}
+        {% endif %}
       </div>
+      {% if not lone %}
       <ol class="sets">
         {% for s in g.sets %}
         <li>
+          {% if s.reps %}
           <span class="set-no">Set {{ s.set_no }}</span>
           <span class="set-val">{{ s.reps }} × {% if s.weight %}{{ s.weight|num }} kg{% else %}bodyweight{% endif %}</span>
-          <span class="spacer"></span>
-          <a class="icon" href="/workouts/sets/{{ s.id }}" title="Edit this set">edit</a>
-          <form method="post" action="/-/workouts/delete" class="delete">
-            <input type="hidden" name="id" value="{{ s.id }}">
-            <button class="icon danger" title="Delete this set">delete</button>
-          </form>
+          {% else %}
+          <span class="set-no"></span>
+          {% if s.weight %}<span class="set-val">{{ s.weight|num }} kg</span>{% endif %}
+          {% endif %}
+          {% if s.notes %}<span class="set-note muted">{{ s.notes }}</span>{% endif %}
+          {{ entry_tools(s) }}
         </li>
         {% endfor %}
       </ol>
+      {% endif %}
     </div>
     {% endfor %}
     {% else %}
-    <p class="empty">No sets on this day yet. Log one on the left.</p>
+    <p class="empty">Nothing logged on this day yet. Log something on the left.</p>
     {% endif %}
   </section>
 </div>
 
 {% elif view == "plans" %}
 {% if edit %}
-<form class="panel plan-editor" method="post" action="/-/workouts/plan/save" autocomplete="off">
+<form class="panel plan-editor" method="post" action="/workouts/plan/save" autocomplete="off">
   <h2>{% if edit.id %}Edit {{ edit.name }}{% else %}New plan{% endif %}</h2>
   <input type="hidden" name="id" value="{{ edit.id }}">
   <div class="form-grid">
@@ -92,7 +132,7 @@
         <td><input name="muscle" list="muscle-list" value="{{ e.muscle_group if e else '' }}" placeholder="Chest" aria-label="Muscle group"></td>
         <td><input name="sets" type="number" min="1" step="1" value="{{ e.sets if e and e.sets else '' }}" class="narrow" aria-label="Sets"></td>
         <td><input name="reps" value="{{ e.reps if e else '' }}" placeholder="8-12" class="narrow" aria-label="Reps"></td>
-        <td><input name="weight" type="number" min="0" step="0.25" value="{{ e.weight|plain if e else '' }}" placeholder="last time" class="narrow" aria-label="Weight in kg"></td>
+        <td><input name="weight" type="number" min="0" step="0.25" value="{{ e.weight|plain if e else '' }}" class="narrow" aria-label="Weight in kg"></td>
         <td><input name="ex_notes" value="{{ e.notes if e else '' }}" aria-label="Notes"></td>
         <td class="row-tools">
           <button type="button" class="icon" data-move="-1" title="Move up">up</button>
@@ -104,7 +144,7 @@
     </tbody>
   </table>
   </div>
-  <p class="muted small-print">Reps can be a range like 8-12. Leave weight empty to use whatever you lifted last time. A muscle group belongs to the exercise, so it shows in every plan that has it and fills in by itself when you pick an exercise you've used; use commas for several ("Chest, Triceps"). Empty rows are ignored.</p>
+  <p class="muted small-print">A plan only needs a name: leave the exercises out for something like bouldering, or list them with as much or as little detail as you like (sets, reps, weight and notes are all optional). Reps can be a range like 8-12. A muscle group belongs to the exercise, so it shows in every plan that has it and fills in by itself when you pick an exercise you've used; use commas for several ("Chest, Triceps"). Empty rows are ignored.</p>
   <div class="actions">
     <button type="button" class="btn small" id="add-row">+ Add exercise</button>
     <span class="spacer"></span>
@@ -121,7 +161,7 @@
   <ol class="upcoming-days">
     {% for u in upcoming %}
     <li{% if loop.first %} class="today"{% endif %}>
-      <a href="/-/workouts?date={{ u.date }}">
+      <a href="/workouts?date={{ u.date }}">
         <span class="when">{{ "Today" if loop.first else u.date|nice_date }}</span>
         <span class="what{{ '' if u.plan else ' rest' }}">{{ u.plan or "Rest" }}</span>
         {% if u.muscles %}<span class="muscles">{{ u.muscles|join(", ") }}</span>{% endif %}
@@ -136,7 +176,7 @@
   <div class="schedule-col">
   <section class="panel schedule">
     <h2>Every week</h2>
-    <form class="week-form" method="post" action="/-/workouts/schedule/week">
+    <form class="week-form" method="post" action="/workouts/schedule/week">
       {% for key, label, pid in weekly %}
       <label class="week-row"><span>{{ label }}</span>
         <select name="{{ key }}"><option value="">Rest</option>{% for p in plans %}<option value="{{ p.id }}"{% if p.id == pid %} selected{% endif %}>{{ p.name }}</option>{% endfor %}</select>
@@ -149,8 +189,8 @@
   <section class="panel schedule">
     <h2>One-off days</h2>
     <p class="muted small-print">A different plan (or a rest) on one date, without changing your week.</p>
-    <form class="inline-form" method="post" action="/-/workouts/schedule/date">
-      <input type="date" name="date" value="{{ today }}" required aria-label="Date">
+    <form class="inline-form" method="post" action="/workouts/schedule/date">
+      <input type="text" name="date" value="{{ today }}" required inputmode="numeric" placeholder="DD/MM/YYYY" pattern="\d{2}/\d{2}/\d{4}" data-date-input aria-label="Date">
       <select name="plan" aria-label="Plan">
         <option value="">Rest</option>
         {% for p in plans %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
@@ -163,7 +203,7 @@
       {% for o in one_offs %}
       <li>
         <span>{{ o.date|nice_date }} · {{ o.plan or "Rest" }}</span>
-        <form method="post" action="/-/workouts/schedule/date">
+        <form method="post" action="/workouts/schedule/date">
           <input type="hidden" name="date" value="{{ o.date }}"><input type="hidden" name="plan" value="weekly">
           <button class="icon danger" title="Go back to the weekly plan on this day">remove</button>
         </form>
@@ -185,7 +225,7 @@
         <h3>{{ p.name }}</h3>
         <span class="spacer"></span>
         <a class="icon" href="?view=plans&amp;plan={{ p.id }}">edit</a>
-        <form method="post" action="/-/workouts/plan/delete" class="delete-plan">
+        <form method="post" action="/workouts/plan/delete" class="delete-plan">
           <input type="hidden" name="id" value="{{ p.id }}">
           <button class="icon danger" data-name="{{ p.name }}">delete</button>
         </form>
@@ -193,11 +233,20 @@
       {% if p.muscles %}<div class="chips">{% for m in p.muscles %}<span class="chip">{{ m }}</span>{% endfor %}</div>{% endif %}
       {% if p.notes %}<p class="muted">{{ p.notes }}</p>{% endif %}
       {% if p.exercises %}
+      {# Columns nobody filled in stay out of the way #}
+      {% set has = namespace(muscle=false, sets=false, reps=false, weight=false, notes=false) %}
+      {% for e in p.exercises %}
+        {% if e.muscle_group %}{% set has.muscle = true %}{% endif %}
+        {% if e.sets %}{% set has.sets = true %}{% endif %}
+        {% if e.reps %}{% set has.reps = true %}{% endif %}
+        {% if e.weight is not none %}{% set has.weight = true %}{% endif %}
+        {% if e.notes %}{% set has.notes = true %}{% endif %}
+      {% endfor %}
       <table>
-        <thead><tr><th>Exercise</th><th>Muscle group</th><th class="n">Sets</th><th class="n">Reps</th><th class="n">Weight (kg)</th><th>Notes</th></tr></thead>
-        <tbody>{% for e in p.exercises %}<tr><td>{{ e.exercise }}</td><td class="muted">{{ e.muscle_group }}</td><td class="n">{{ e.sets or "" }}</td><td class="n">{{ e.reps }}</td><td class="n">{{ e.weight|num if e.weight is not none else "last time" }}</td><td class="muted">{{ e.notes }}</td></tr>{% endfor %}</tbody>
+        <thead><tr><th>Exercise</th>{% if has.muscle %}<th>Muscle group</th>{% endif %}{% if has.sets %}<th class="n">Sets</th>{% endif %}{% if has.reps %}<th class="n">Reps</th>{% endif %}{% if has.weight %}<th class="n">Weight (kg)</th>{% endif %}{% if has.notes %}<th>Notes</th>{% endif %}</tr></thead>
+        <tbody>{% for e in p.exercises %}<tr><td>{{ e.exercise }}</td>{% if has.muscle %}<td class="muted">{{ e.muscle_group }}</td>{% endif %}{% if has.sets %}<td class="n">{{ e.sets or "" }}</td>{% endif %}{% if has.reps %}<td class="n">{{ e.reps }}</td>{% endif %}{% if has.weight %}<td class="n">{{ e.weight|num if e.weight is not none else "" }}</td>{% endif %}{% if has.notes %}<td class="muted">{{ e.notes }}</td>{% endif %}</tr>{% endfor %}</tbody>
       </table>
-      {% else %}<p class="empty">No exercises yet. <a href="?view=plans&amp;plan={{ p.id }}">Add some</a>.</p>{% endif %}
+      {% elif not p.notes %}<p class="muted">Just the name, no exercise list. <a href="?view=plans&amp;plan={{ p.id }}">Add details</a> if you want them.</p>{% endif %}
     </article>
     {% else %}
     <div class="panel"><p class="empty">No plans yet. <a href="?view=plans&amp;plan=new">Make your first one</a>, then put it on days of the week on the left.</p></div>
@@ -214,11 +263,11 @@
     <tbody>
     {% for h in history %}
       <tr><td><a href="?date={{ h.date }}">{{ h.date|nice_date(true) }}</a> <span class="muted">{{ h.date|days_ago }}</span></td>
-          <td>{{ h.exercises }}</td><td class="n">{{ h.sets }}</td><td class="n">{{ h.reps }}</td><td class="n">{{ h.volume|num }}</td></tr>
+          <td>{{ h.exercises }}</td><td class="n">{{ h.sets or "" }}</td><td class="n">{{ h.reps or "" }}</td><td class="n">{{ h.volume|num if h.volume else "" }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
-  {% else %}<p class="empty">No workouts yet. <a href="?view=log">Log your first set</a>.</p>{% endif %}
+  {% else %}<p class="empty">No workouts yet. <a href="?view=log">Log your first one</a>.</p>{% endif %}
 </section>
 
 {% else %}
@@ -232,7 +281,7 @@
 <div class="charts">
   <section class="panel wide">
     <header class="chart-head">
-      <h2>{% if bodyweight %}Most reps per workout{% else %}Heaviest set per workout{% endif %}</h2>
+      <h2>{% if uncounted %}Days you did it{% elif bodyweight %}Most reps per workout{% else %}Heaviest set per workout{% endif %}</h2>
       {% if exercises %}
       <form method="get" class="inline-form">
         <input type="hidden" name="view" value="stats">
@@ -242,11 +291,16 @@
       </form>
       {% endif %}
     </header>
+    {% if uncounted %}
+    <p class="muted">Logged without reps or weight, so there's nothing to chart: {{ progress|length }} day{{ "s" if progress|length != 1 }}, last {{ progress[-1].date|days_ago }}.</p>
+    <ul class="plain-days">{% for p in progress|reverse %}<li><a href="?date={{ p.date }}">{{ p.date|nice_date(true) }}</a></li>{% endfor %}</ul>
+    {% else %}
     {{ progress_chart }}
-    {% if progress %}
+    {% endif %}
+    {% if progress and not uncounted %}
     <details class="table-view"><summary>Table</summary>
       <table><thead><tr><th>Date</th><th class="n">Sets</th><th class="n">Heaviest (kg)</th><th class="n">Most reps</th><th class="n">Est. 1RM (kg)</th></tr></thead>
-      <tbody>{% for p in progress|reverse %}<tr><td>{{ p.date|nice_date(true) }}</td><td class="n">{{ p.sets }}</td><td class="n">{{ p.heaviest|num }}</td><td class="n">{{ p.most_reps }}</td><td class="n">{{ p.est_1rm|num }}</td></tr>{% endfor %}</tbody></table>
+      <tbody>{% for p in progress|reverse %}<tr><td>{{ p.date|nice_date(true) }}</td><td class="n">{{ p.sets or "" }}</td><td class="n">{{ p.heaviest|num }}</td><td class="n">{{ p.most_reps or "" }}</td><td class="n">{{ p.est_1rm|num }}</td></tr>{% endfor %}</tbody></table>
     </details>
     {% endif %}
   </section>
@@ -275,7 +329,7 @@
     {% if records %}
     <table>
       <thead><tr><th>Exercise</th><th class="n">Heaviest (kg)</th><th class="n">Reps at heaviest</th><th class="n">Est. 1RM (kg)</th><th class="n">Workouts</th><th class="n">Sets</th><th>Last done</th></tr></thead>
-      <tbody>{% for r in records %}<tr><td><a href="?view=stats&amp;exercise={{ r.exercise|urlencode }}">{{ r.exercise }}</a></td><td class="n">{{ r.heaviest|num }}</td><td class="n">{{ r.reps_at_heaviest }}</td><td class="n">{{ r.est_1rm|num }}</td><td class="n">{{ r.workouts }}</td><td class="n">{{ r.sets }}</td><td>{{ r.last_done|nice_date }}</td></tr>{% endfor %}</tbody>
+      <tbody>{% for r in records %}<tr><td><a href="?view=stats&amp;exercise={{ r.exercise|urlencode }}">{{ r.exercise }}</a></td><td class="n">{{ r.heaviest|num if r.heaviest or r.sets else "" }}</td><td class="n">{{ r.reps_at_heaviest or "" }}</td><td class="n">{{ r.est_1rm|num if r.est_1rm is not none else "" }}</td><td class="n">{{ r.workouts }}</td><td class="n">{{ r.sets or "" }}</td><td>{{ r.last_done|nice_date }}</td></tr>{% endfor %}</tbody>
     </table>
     {% else %}<p class="empty">Nothing logged yet.</p>{% endif %}
   </section>

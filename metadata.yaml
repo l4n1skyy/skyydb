@@ -6,7 +6,7 @@ databases:
       words:
         description: >-
           Every word. Filter by list with the status facet. Add words with "Insert row";
-          edit or delete with the buttons next to each id. Day-to-day studying is at /-/chinese.
+          edit or delete with the buttons next to each id. Day-to-day studying is on the HSK page, /hsk.
       to_learn:
         description: Words you haven't learnt yet.
       to_revise:
@@ -18,12 +18,13 @@ databases:
       settings:
         description: revise_after_days is the spaced repetition interval (7 by default).
   workouts:
-    description: One row per set. Same exercise on the same date = that exercise's sets; same date = one workout.
+    description: One row per set (or per thing you did). Same exercise on the same date = that exercise's sets; same date = one workout.
     tables:
       sets:
         description: >-
-          Every set (weight in kg, 0 = bodyweight). Add with "Insert row"; edit or delete with
-          the buttons next to each id. Day-to-day logging is at /-/workouts.
+          Every set (weight in kg, 0 = bodyweight). Only the exercise is needed: empty reps = done
+          without counting sets, like a bouldering session. Add with "Insert row"; edit or delete with
+          the buttons next to each id. Day-to-day logging is at /workouts.
       set_log:
         description: Every set with its set number for that exercise that day.
       workouts:
@@ -31,9 +32,9 @@ databases:
       records:
         description: Best results per exercise. est_1rm is an estimated one-rep max (Epley formula).
       plans:
-        description: Workout plans. Create and edit them on the Plans tab at /-/workouts?view=plans.
+        description: Workout plans. Create and edit them on the Plans tab at /workouts?view=plans.
       plan_exercises:
-        description: The exercises in each plan, in order, with target sets, reps and weight (empty weight = what you did last time).
+        description: The exercises in each plan, in order, with target sets, reps and weight, all optional.
       exercise_muscles:
         description: The muscle group(s) each exercise trains, e.g. "Chest, Triceps". Set in the plan editor.
       plan_schedule:
@@ -44,11 +45,11 @@ databases:
       expenses:
         description: >-
           Every expense. Add with "Insert row"; edit or delete with the buttons next to each id.
-          Day-to-day logging is at /-/finance.
+          Day-to-day logging is at /finance.
       budget:
         description: >-
           What you plan to spend per category, each day (period = daily) or each month (monthly).
-          Easier to edit on the Budget tab at /-/finance?view=budget.
+          Easier to edit on the Budget tab at /finance?view=budget.
       balances:
         description: How much was in a savings account on a date. The newest entry per account is its balance now.
       trades:
@@ -74,12 +75,12 @@ databases:
       holdings:
         description: Shares held per ticker, and what was bought and sold (in the share's currency, commission included). The Savings tab adds what they're worth.
   quotes:
-    description: Quotes worth keeping, each with one general tag. Day-to-day at /-/quotes.
+    description: Quotes worth keeping, each with one general tag. Day-to-day at /quotes.
     tables:
       quotes:
         description: >-
           Every quote - who said it (author) and where it's from (source: a book, film or show).
-          Easier to add and tag at /-/quotes.
+          Easier to add and tag at /quotes.
       tags:
         description: Every tag. Renaming one here renames it on its quotes; deleting one takes it off them.
       quote_tags:
@@ -88,23 +89,23 @@ databases:
         description: Every quote with its tags.
       tag_counts:
         description: How many quotes each tag has.
-  knowledge:
-    description: Knowledge bits - little things worth remembering, each with any number of tags. Day-to-day at /-/knowledge.
+  thoughts:
+    description: Thoughts - little things worth keeping, each with any number of tags. Day-to-day at /thoughts.
     tables:
-      bits:
+      thoughts:
         description: >-
-          Every bit - an optional title, what you learnt, and where from (source: a link, a book, a person).
-          Easier to add and tag at /-/knowledge.
+          Every thought - an optional title, the thought, and where it came from (source: a link, a book, a person).
+          Easier to add and tag at /thoughts.
       tags:
-        description: Every tag. Renaming one here renames it on its bits; deleting one takes it off them.
-      bit_tags:
-        description: Which bit has which tag. A tag that isn't in tags yet is added to it.
-      bits_tagged:
-        description: Every bit with its tags.
+        description: Every tag. Renaming one here renames it on its thoughts; deleting one takes it off them.
+      thought_tags:
+        description: Which thought has which tag. A tag that isn't in tags yet is added to it.
+      thoughts_tagged:
+        description: Every thought with its tags.
       tag_counts:
-        description: How many bits each tag has.
+        description: How many thoughts each tag has.
   work:
-    description: Work - courses and their tasks (assignments, exams...) with deadlines and priorities. Day-to-day at /-/work.
+    description: Work - courses and their tasks (assignments, exams...) with deadlines and priorities. Day-to-day at /work.
     tables:
       courses:
         description: Your courses. Deleting one keeps its tasks, without a course.

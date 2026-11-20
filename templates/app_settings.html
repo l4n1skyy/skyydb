@@ -1,0 +1,86 @@
+{# Settings (plugins/app.py: settings_page and settings_*_save): page names, hiding and locking
+   pages, the password, Home's widgets, and the raw data in Datasette. Saved in settings.json. #}
+{% extends "app_base.html" %}
+{% block title %}Settings{% endblock %}
+{% block main %}
+<div class="page-head"><h1>Settings</h1></div>
+
+<div class="settings-grid">
+  <form class="panel settings-pages" method="post" action="/settings/pages" autocomplete="off">
+    <h2>Pages</h2>
+    <table class="pages-table">
+      <thead><tr><th>Page</th><th>Name</th><th>In the menu</th><th>Locked</th></tr></thead>
+      <tbody>
+      {% for p in pages %}
+        <tr>
+          <td class="muted">{{ p.default }}</td>
+          <td><input name="name_{{ p.key }}" value="{{ p.name }}" placeholder="{{ p.default }}" maxlength="40" aria-label="Name for {{ p.default }}"></td>
+          {% if p.key == "home" %}
+          <td></td><td></td>
+          {% else %}
+          <td><label class="switch"><input type="checkbox" name="show_{{ p.key }}"{% if p.shown %} checked{% endif %} aria-label="Show {{ p.default }} in the menu"></label></td>
+          <td><label class="switch"><input type="checkbox" name="lock_{{ p.key }}"{% if p.locked %} checked{% endif %}{% if not has_password %} disabled{% endif %} aria-label="Lock {{ p.default }}"></label></td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="actions">
+      {% if has_password %}<input type="password" name="password" autocomplete="current-password" placeholder="Password (to turn a lock off)" aria-label="Password, needed to turn a lock off">{% endif %}
+      <span class="spacer"></span>
+      <button class="btn primary">Save pages</button>
+    </div>
+    {% if not has_password %}<p class="muted small-print">Set a password to lock pages.</p>{% endif %}
+  </form>
+
+  <div class="settings-side">
+    <form class="panel" method="post" action="/settings/widgets" data-autosave>
+      <h2>Home <span class="muted autosave-status" aria-live="polite"></span></h2>
+      <ul class="widget-list">
+      {% for w in widgets %}
+        <li>
+          <input type="hidden" name="present" value="{{ w.key }}">
+          <label class="switch"><input type="checkbox" name="widget" value="{{ w.key }}"{% if w.on %} checked{% endif %}>
+            <span>{{ w.name }}{% if w.page %} <span class="muted">· {{ w.page }}{% if w.hidden %} (hidden){% endif %}</span>{% endif %}</span>
+          </label>
+        </li>
+      {% endfor %}
+      </ul>
+      <noscript><button class="btn small">Save</button></noscript>
+    </form>
+
+    <form class="panel" method="post" action="/settings/password" autocomplete="off">
+      <h2>Password</h2>
+      <div class="form-stack">
+        {% if has_password %}<label>Current password <input type="password" name="current" autocomplete="current-password" required></label>{% endif %}
+        <label>{{ "New password" if has_password else "Password" }} <input type="password" name="new" autocomplete="new-password"{% if not has_password %} required{% endif %}{% if has_password %} placeholder="leave empty to keep it"{% endif %}></label>
+        <label>Again <input type="password" name="again" autocomplete="new-password"{% if not has_password %} required{% endif %}></label>
+        <label>Unlocked pages stay open for (minutes) <input type="number" name="minutes" min="0" step="1" value="{{ minutes }}" title="0 = until you close the browser"></label>
+      </div>
+      <div class="actions">
+        {% if has_password %}<button class="btn ghost danger-text" name="action" value="remove" formnovalidate title="Needs the current password; unlocks every page">Remove password</button>{% endif %}
+        <span class="spacer"></span>
+        <button class="btn primary" name="action" value="save">{{ "Save" if has_password else "Set password" }}</button>
+      </div>
+    </form>
+  </div>
+
+  <section class="panel settings-raw">
+    <h2>Raw data <span class="muted">every table, in Datasette</span></h2>
+    <table>
+      <thead><tr><th>Database</th><th>Page</th><th class="n">Tables</th><th class="n">Views</th><th class="n">Size</th></tr></thead>
+      <tbody>
+      {% for d in raw %}
+        <tr>
+          <td><a href="/{{ d.route }}">{{ d.name }}.db</a>{% if d.locked %} <span class="lock-glyph" title="Locked"></span>{% endif %}</td>
+          <td class="muted">{% if d.page %}{% if d.locked %}<span class="censored">{{ d.page }}</span>{% else %}{{ d.page }}{% endif %}{% endif %}</td>
+          <td class="n">{{ d.tables }}</td>
+          <td class="n">{{ d.views }}</td>
+          <td class="n">{{ d.size }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+{% endblock %}

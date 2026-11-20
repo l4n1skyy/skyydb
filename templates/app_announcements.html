@@ -1,0 +1,210 @@
+{# The Announcements tab of Work: eLearn + Outlook in one list, sorted by how much each thing matters (importance from classify.py in the elearn project):
+   1 act on it: deadlines, assessments, grades, exams · 2 your week: class changes · 3 content released · 4 events and opportunities · 5 noise.
+   Included by app_work.html; see plugins/app.py (announcements_context). #}
+{% macro ann_row(it, show_course=true) %}
+    <li class="task" style="--c: {{ it.course|name_color }}">
+      <details class="task-details">
+        <summary>
+          <span class="when-box"><b>{{ it.day|short_due if it.day else '–' }}</b><i>{{ it.posted_at[11:16] }}</i></span>
+          <span class="task-title">{{ it.title }}</span>
+          {% if it.tracked %}<span class="badge c-class" title="Matches a task in your Work list">task</span>{% endif %}
+          {% if it.source == 'email' %}<span class="badge" title="Only in Outlook">email</span>{% elif it.emailed %}<span class="badge" title="Also in your Outlook inbox">+ email</span>{% endif %}
+          {% if it.pages %}<span class="badge" title="{% for x in it.also %}{{ x.course }}&#10;{% endfor %}">+{{ it.pages }} pages</span>{% endif %}
+          {% if it.category not in ('general', 'info') %}<span class="badge c-{{ it.category }}">{{ it.category }}</span>{% endif %}
+          {% if show_course %}<span class="subject" title="{{ it.name }}">{{ it.name }}</span>{% endif %}
+        </summary>
+        <div class="task-body">
+          <div class="meta"><span>{{ it.course }}</span><span>{{ it.day|nice_date(true) }}</span></div>
+          {% if it.body %}<div class="notes">{{ it.body[:900] }}{{ '…' if it.body|length > 900 }}</div>{% endif %}
+          <div class="actions">
+            {% if it.link %}<a class="btn small" href="{{ it.link }}" target="_blank" rel="noopener">Open in eLearn</a>{% endif %}
+            {% if it.mail_link %}<a class="btn small" href="{{ it.mail_link }}" target="_blank" rel="noopener">Open in Outlook</a>{% endif %}
+          </div>
+        </div>
+      </details>
+    </li>
+{% endmacro %}
+{% macro add_btn(it) %}{% if not it.in_tasks %}<form method="post" action="/work/save" class="inline-form" title="Not in your tasks yet">
+        <input type="hidden" name="title" value="{{ it.add.title }}"><input type="hidden" name="course_id" value="{{ it.add.course_id }}"><input type="hidden" name="due" value="{{ it.add.due }}"><input type="hidden" name="due_time" value="{{ it.add.due_time }}"><input type="hidden" name="priority" value="2">
+        <button class="btn small">+ task</button></form>{% else %}<span class="badge c-class" title="Already in your Work tasks">tracked</span>{% endif %}{% endmacro %}
+{% macro ann_list(pair, older_label) %}
+  {% set recent, older = pair %}
+  {% if recent %}<ul class="task-list">{% for it in recent %}{{ ann_row(it) }}{% endfor %}</ul>{% else %}<p class="empty small-print">Nothing in the last 45 days.</p>{% endif %}
+  {% if older %}<details class="an-more"><summary>{{ older_label }} ({{ older|length }})</summary><ul class="task-list">{% for it in older %}{{ ann_row(it) }}{% endfor %}</ul></details>{% endif %}
+{% endmacro %}
+
+<div class="an-bar">
+  <div class="an-groups">
+  <nav class="chips tag-filter an-courses" aria-label="Show one course">
+    <a class="chip" href="?view=announcements"{% if not an_course %} aria-current="true"{% endif %}>all courses</a>
+    {% for c in an_courses if c.code %}<a class="chip{{ ' off' if c.off }}" style="--c: {{ c.course|name_color }}" data-course="{{ c.course }}" href="?view=announcements&course={{ c.course|urlencode }}"{% if c.course == an_course %} aria-current="true"{% endif %} title="{{ c.name }}{{ ' (off: not read, not shown)' if c.off }}. Double-click to turn {{ 'on' if c.off else 'off' }}">{{ c.name }}</a>{% endfor %}
+  </nav>
+  {% if an_pages %}<nav class="chips tag-filter an-courses an-pages" aria-label="Show one faculty or career page">
+    <span class="muted small-print">Faculty and career</span>
+    {% for c in an_pages %}<a class="chip" style="--c: {{ c.course|name_color }}" href="?view=announcements&course={{ c.course|urlencode }}"{% if c.course == an_course %} aria-current="true"{% endif %}>{{ c.name }}</a>{% endfor %}
+  </nav>{% endif %}
+  </div>
+</div>
+
+<p class="muted small-print an-sync">Last read: {% for s in an_sync %}<span{% if s.error %} class="bad" title="{{ s.error }}"{% endif %}>{{ s.source }} {{ s.at[11:16] if s.at else 'never' }}{{ ' ⚠' if s.error }}</span>{{ ' · ' if not loop.last }}{% endfor %}</p>
+
+<div class="tiles">
+  <div class="tile{{ ' due' if an_soon }}"><span class="tile-label">Due in 14 days</span><span class="tile-value">{{ an_soon }}</span></div>
+  <div class="tile"><span class="tile-label">Average grade</span><span class="tile-value">{{ an_avg ~ '%' if an_avg is not none else '–' }}</span></div>
+  <div class="tile"><span class="tile-label">Important (7 days)</span><span class="tile-value">{{ an_week.important }}</span></div>
+  <div class="tile"><span class="tile-label">Class changes (7 days)</span><span class="tile-value">{{ an_week.classes }}</span></div>
+  <div class="tile"><span class="tile-label">New content (7 days)</span><span class="tile-value">{{ an_week.content }}</span></div>
+</div>
+
+{% if not an_total %}<p class="empty">Nothing here yet. Press <b>Refresh</b> to read eLearn and Outlook.</p>{% endif %}
+
+<h2 class="an-tier t1">Needs your attention</h2>
+
+<section class="panel uni-group">
+  <h2>Your tasks and what eLearn and Outlook say <span class="muted">{{ an_tasks|length }}</span></h2>
+  <ul class="task-list">
+  {% for t in an_tasks if not an_course or t.elearn_course == an_course %}
+    <li class="task" style="--c: {{ (t.elearn_course or t.course)|name_color }}"><details class="task-details">
+      <summary>
+        <span class="when-box{{ ' over' if t.days_left is not none and t.days_left <= 3 }}"><b>{{ t.due|short_due if t.due else '–' }}</b><i>{{ t.due|days_ago if t.due else '' }}</i></span>
+        <span class="task-title">{{ t.title }}</span>
+        {% if t.found %}<span class="badge c-class">{{ t.found|length }} in eLearn / Outlook</span>{% elif t.elearn_course %}<span class="badge">nothing found</span>{% endif %}
+        <span class="subject">{{ t.course }}</span>
+      </summary>
+      <div class="task-body">
+        {% for f in t.found %}<div class="meta"><span class="badge c-{{ f.kind }}">{{ f.kind }}</span>{% if f.via %}<span class="muted">{{ f.via }}</span>{% endif %}<span>{{ f.text }}</span>
+          {% if f.due %}<span>due {{ f.due }}{% if t.due and f.due[:10] != t.due %} <b>(your task says {{ t.due }})</b>{% endif %}</span>{% endif %}
+          {% if f.score is not none and f.score is defined and f.kind == 'assessment' %}<span>score {{ f.score }}{{ ' / ' ~ f.possible if f.possible }}</span>{% endif %}
+          {% if f.day %}<span>{{ f.day|nice_date }}</span>{% endif %}</div>{% endfor %}
+        {% if not t.found %}<div class="notes">No assessment, announcement or email matches this yet.</div>{% endif %}
+      </div>
+    </details></li>
+  {% endfor %}
+  </ul>
+</section>
+
+{% if an_upcoming or an_stream_due or an_waiting %}
+<section class="panel uni-group">
+  <h2>Due soon <span class="muted">{{ an_upcoming|length + an_stream_due|length }}</span></h2>
+  <ul class="task-list">
+  {% for a in an_upcoming %}
+    <li class="task" style="--c: {{ a.course|name_color }}"><div class="done-row ahead">
+      <span class="when-box{{ ' over' if a.days_left <= 3 }}"><b>{{ a.due[:10]|short_due }}</b><i>{{ a.due[11:] }}</i></span>
+      <span class="task-title">{{ a.short }}</span>
+      {% if a.weight == 'major' %}<span class="badge c-assessment">assessment</span>{% endif %}
+      <span class="muted">{{ a.due[:10]|days_ago }}</span>
+      <span class="subject" title="{{ a.name }}">{{ a.name }}</span>{{ add_btn(a) }}
+    </div></li>
+  {% endfor %}
+  {% for d in an_stream_due %}
+    <li class="task" style="--c: {{ d.course|name_color }}"><div class="done-row ahead">
+      <span class="when-box{{ ' over' if d.days_left is defined and d.days_left <= 3 }}"><b>{{ d.due[:10]|short_due }}</b><i>{{ d.due[11:] }}</i></span>
+      <span class="task-title">{{ d.title }}</span>
+      <span class="muted">{{ d.due[:10]|days_ago }}</span>
+      <span class="subject" title="{{ d.name }}">{{ d.name }}</span>{{ add_btn(d) }}
+    </div></li>
+  {% endfor %}
+  </ul>
+  {% if an_waiting %}
+  <details class="an-more"><summary>Past due, no result yet ({{ an_waiting|length }})</summary>
+    <ul class="task-list">{% for a in an_waiting %}
+      <li class="task" style="--c: {{ a.course|name_color }}"><div class="done-row ahead">
+        <span class="when-box over"><b>{{ a.due[:10]|short_due }}</b><i>{{ a.due[:10]|days_ago }}</i></span>
+        <span class="task-title">{{ a.short }}</span><span class="subject" title="{{ a.name }}">{{ a.name }}</span>
+      </div></li>{% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="panel uni-group">
+  <h2>Tests, assignments, submissions, exams <span class="muted">{{ an_important[0]|length }}{% if an_important[1] %} + {{ an_important[1]|length }} older{% endif %}</span></h2>
+  {{ ann_list(an_important, "Show older") }}
+</section>
+
+{% if an_by.grade %}
+<section class="panel uni-group">
+  <h2>Grades <span class="muted">{{ an_by.grade|length }}</span></h2>
+  <ul class="task-list">
+  {% for g in an_by.grade %}{% if loop.index == 9 %}</ul><details class="an-more"><summary>Show the other {{ an_by.grade|length - 8 }}</summary><ul class="task-list">{% endif %}
+    <li class="task" style="--c: {{ g.course|name_color }}"><div class="done-row ahead">
+      <span class="when-box"><b>{{ g.day|short_due if g.day else '–' }}</b><i>posted</i></span>
+      <span class="task-title" title="{{ g.content }}">{{ g.what }}</span>
+      <span class="subject" title="{{ g.name }}">{{ g.name }}</span>
+      <span class="grade-score{{ ' low' if g.pct is not none and g.pct < 50 }}">{{ g.score or '–' }}{% if g.pct is not none %} <small>{{ g.pct }}%</small>{% endif %}</span>
+    </div></li>
+  {% endfor %}
+  {% if an_by.grade|length > 8 %}</ul></details>{% else %}</ul>{% endif %}
+</section>
+{% endif %}
+
+
+<h2 class="an-tier t2">Your week</h2>
+<section class="panel uni-group">
+  <h2>Class changes and reminders <span class="muted">{{ an_classes[0]|length }}{% if an_classes[1] %} + {{ an_classes[1]|length }} older{% endif %}</span></h2>
+  {{ ann_list(an_classes, "Show older") }}
+</section>
+
+<h2 class="an-tier t3">Content released</h2>
+<section class="panel uni-group">
+  <details class="an-fold"{% if not an_course %}{% else %} open{% endif %}>
+    <summary><b>Slides, files and resources</b> <span class="muted">{{ an_by.content|length }}</span></summary>
+    {% for course, group in an_by.content|groupby('course') %}
+    <h3 class="an-course" style="--c: {{ course|name_color }}"><span class="subject">{{ group[0].name or course }}</span> <span class="muted">{{ group|length }}</span></h3>
+    <ul class="task-list">
+    {% for it in group|sort(attribute='posted_at', reverse=true) %}
+      <li class="task" style="--c: {{ course|name_color }}"><div class="done-row ahead">
+        <span class="when-box"><b>{{ it.day|short_due if it.day else '–' }}</b><i>{{ it.posted_at[11:] }}</i></span>
+        <span class="task-title">{{ it.title.removeprefix('Added:').strip() }}</span>
+        <span class="badge t-{{ it.topic|lower }}">{{ it.topic }}</span>
+        {% if it.link %}<a class="btn small" href="{{ it.link }}" target="_blank" rel="noopener">Open</a>{% endif %}
+      </div></li>
+    {% endfor %}
+    </ul>
+    {% endfor %}
+  </details>
+</section>
+
+<h2 class="an-tier t4">Internships and events</h2>
+<section class="panel uni-group">
+  <h2>Internships and jobs <span class="muted">{{ an_internships[0]|length }}{% if an_internships[1] %} + {{ an_internships[1]|length }} older{% endif %}</span></h2>
+  {{ ann_list(an_internships, "Show older") }}
+</section>
+<section class="panel uni-group">
+  <h2>Events, competitions, surveys <span class="muted">{{ an_events[0]|length }}{% if an_events[1] %} + {{ an_events[1]|length }} older{% endif %}</span></h2>
+  {{ ann_list(an_events, "Show older") }}
+</section>
+
+<section class="panel uni-group">
+  <details class="an-fold">
+    <summary><b>Everything else</b> <span class="muted">welcome notes, campus notices, general information · {{ an_other[0]|length + an_other[1]|length }}{% if an_by.enrolment %} · {{ an_by.enrolment|length }} courses added{% endif %}</span></summary>
+    {% set recent, older = an_other %}
+    <ul class="task-list">{% for it in recent + older %}{{ ann_row(it) }}{% endfor %}</ul>
+        {% if an_by.enrolment %}<h3 class="an-course">Courses added</h3>
+    <ul class="task-list">{% for it in an_by.enrolment %}<li class="task"><div class="done-row ahead"><span class="when-box"><b>{{ it.day|short_due if it.day else '–' }}</b></span><span class="task-title">{{ it.title.split(': ', 1)[1] if ': ' in it.title else it.title }}</span></div></li>{% endfor %}</ul>{% endif %}
+  </details>
+</section>
+
+{% if an_running %}<script>
+// A refresh is running: wait quietly (the page stays as it is, filter included) and reload this same address once when it finishes
+const wait = setInterval(() => fetch('/work/announcements/status').then(r => r.json()).then(s => { if (!s.running) { clearInterval(wait); location.reload(); } }).catch(() => {}), 3000);
+</script>{% endif %}
+
+<script>
+// Click filters by a course; double-click switches it on/off (off = Refresh stops reading it and it is hidden)
+document.querySelectorAll('.an-courses a[data-course]').forEach(a => {
+  let timer = null;
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    if (e.detail > 1) return;
+    timer = setTimeout(() => { location.href = a.href; }, 280);
+  });
+  a.addEventListener('dblclick', e => {
+    e.preventDefault();
+    clearTimeout(timer);
+    fetch('/work/announcements/course', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                                       body: 'course=' + encodeURIComponent(a.dataset.course)}).then(() => location.replace('/work?view=announcements'));
+  });
+});
+</script>

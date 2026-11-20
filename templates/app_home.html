@@ -1,37 +1,46 @@
 {% extends "app_base.html" %}
+{# A locked page's widget is laid out as usual, but with stand-in content (plugins/app.py: home; never
+   the real data), so it keeps its real size. The content stays invisible under this blank cover with a
+   lock in the middle, which opens the password popup. #}
+{% macro cover(key) %}<a class="locked-cover" href="/?unlock=/" title="Locked" aria-label="Locked. Unlock it"><span class="lock-glyph" aria-hidden="true"></span></a>{% endmacro %}
+{% macro lock_class(key) %}{% if key in locked %} locked-panel{% endif %}{% endmacro %}
 {% block main %}
 <div class="home">
+  {% if show.date or show.quote %}
   <div class="home-top">
-    <div class="home-date"><b>{{ today.day }}</b><b>{{ today.month }}</b><span>{{ today.rest }}</span></div>
-    {% if quote and "quotes" in features %}
+    {% if show.date %}<div class="home-date"><b>{{ today.day }}</b><b>{{ today.month }}</b><span>{{ today.rest }}</span></div>{% endif %}
+    {% if show.quote and quote and "quotes" in locked %}
+    <div class="home-quote locked-panel"><q>{{ quote.text }}</q> <span class="muted">— {{ quote.author }}</span>{{ cover("quotes") }}</div>
+    {% elif show.quote and quote %}
     {% if quote.api %}
     <div class="home-quote"><q>{{ quote.text }}</q> <span class="muted">— {{ quote.author }}</span> <a class="muted credit" href="https://zenquotes.io" target="_blank" rel="noopener">quotes by ZenQuotes</a></div>
     {% else %}
-    <a class="home-quote" href="/-/quotes"><q>{{ quote.text }}</q>{% if quote.author or quote.source %} <span class="muted">— {{ [quote.author, quote.source]|select|join(", ") }}</span>{% endif %}</a>
+    <a class="home-quote" href="/quotes"><q>{{ quote.text }}</q>{% if quote.author or quote.source %} <span class="muted">— {{ [quote.author, quote.source]|select|join(", ") }}</span>{% endif %}</a>
     {% endif %}
     {% endif %}
   </div>
+  {% endif %}
 
-  <div class="home-cols{% if "work" not in features %} no-side{% endif %}">
+  <div class="home-cols{% if not show.work %} no-side{% endif %}">
     <div class="home-main">
-{% if 'chinese' in features %}
-  <section class="panel home-chinese">
+{% if show.chinese %}
+  <section class="panel home-chinese{{ lock_class('chinese') }}">
     <header class="panel-head">
-      <h2><a href="/-/chinese">Chinese</a> <span class="muted">today's words</span></h2>
+      <h2><a href="/hsk">{{ names.chinese }}</a> <span class="muted">today's words</span></h2>
       <a class="icon" href="/?shuffle={{ shuffle + 1 }}" title="Pick other words">shuffle</a>
     </header>
     <div class="home-row">
       {% if picks %}
       <div class="home-picks">
-        <div class="picks{% if not flip %} no-flip{% endif %}">
+        <div class="picks">
           {% for w in picks %}
-          <article class="word pick{% if not flip %} open{% endif %}">
+          <article class="word pick">
             <span class="badge{% if w.status == 'to revise' %} due{% endif %}">{{ w.status }}</span>
             <div class="hanzi" lang="zh-CN">{{ w.character }}</div>
             <div class="pinyin" lang="zh-Latn-pinyin">{{ w.pinyin }}</div>
             <div class="english">{{ w.english }}</div>
             <div class="meta">{{ [w.type, w.category, ("HSK " ~ w.hsk) if w.hsk else ""]|select|join(" · ") }}</div>
-            <form class="moves" method="post" action="/-/chinese/move">
+            <form class="moves" method="post" action="/hsk/move">
               <input type="hidden" name="id" value="{{ w.id }}">
               <input type="hidden" name="from" value="home">
               <input type="hidden" name="shuffle" value="{{ shuffle }}">
@@ -44,13 +53,14 @@
       </div>
       {% endif %}
     </div>
+    {% if 'chinese' in locked %}{{ cover('chinese') }}{% endif %}
   </section>
 {% endif %}
 
-{% if 'workouts' in features %}
-  <section class="panel home-workouts">
+{% if show.workouts %}
+  <section class="panel home-workouts{{ lock_class('workouts') }}">
     <header class="panel-head">
-      <h2><a href="/-/workouts">Workouts</a></h2>
+      <h2><a href="/workouts">{{ names.workouts }}</a></h2>
     </header>
     <div class="workout-grid">
       <div class="today-card{% if today_plan and today_plan.rest %} rest{% endif %}">
@@ -59,7 +69,7 @@
           <span class="today-name">{{ today_plan.name if today_plan else "Nothing planned" }}</span>
           {% if today_plan and today_plan.n %}<span class="today-sub">{{ today_plan.n }} exercise{{ "s" if today_plan.n != 1 }}{% if today_plan.muscles %} · {{ today_plan.muscles }}{% endif %}</span>{% endif %}
         </div>
-        <a class="btn primary" href="/-/workouts">Log a workout</a>
+        <a class="btn primary" href="/workouts">Log a workout</a>
       </div>
       <div class="tile">
         <span class="tile-label">Day streak</span>
@@ -70,33 +80,35 @@
         <span class="tile-value">{{ streak.weeks }} <small>week{{ "s" if streak.weeks != 1 }}</small></span>
       </div>
     </div>
+    {% if 'workouts' in locked %}{{ cover('workouts') }}{% endif %}
   </section>
 {% endif %}
 
-{% if 'finance' in features %}
-  <section class="panel">
+{% if show.finance %}
+  <section class="panel{{ lock_class('finance') }}">
     <header class="panel-head">
-      <h2><a href="/-/finance">Finance</a></h2>
+      <h2><a href="/finance">{{ names.finance }}</a></h2>
     </header>
     {% set d = fin.daily_total %}
     {% if d.budget %}
     {# The bar is the budget; past it, the bar is everything spent and the red part is over #}
-    <a class="home-day{% if d.over %} over{% endif %}" href="/-/finance" aria-label="Today's budget">
+    <a class="home-day{% if d.over %} over{% endif %}" href="/finance" aria-label="Today's budget">
       <span class="meter">{% if d.over %}<i style="width:{{ 100 * d.budget / d.spent }}%"></i><i class="over" style="flex:1"></i>{% elif d.spent %}<i style="width:{{ d.pct }}%"></i>{% endif %}</span>
       <span class="home-day-text">
         <span>{% if d.over %}<b>{{ (-d.left)|money }}</b> over today's budget{% else %}<b>{{ d.left|money }}</b> left of today's budget{% endif %}</span>
         <span class="muted">{{ d.spent|money }} of {{ d.budget|money }}</span>
       </span>
     </a>
-    {% else %}<p class="empty"><a href="/-/finance?view=budget">Set a daily budget</a> to see what's left of it here.</p>{% endif %}
+    {% else %}<p class="empty"><a href="/finance?view=budget">Set a daily budget</a> to see what's left of it here.</p>{% endif %}
+    {% if 'finance' in locked %}{{ cover('finance') }}{% endif %}
   </section>
 {% endif %}
 
     </div>
-{% if 'work' in features %}
-  <aside class="panel home-uni">
+{% if show.work %}
+  <aside class="panel home-uni{{ lock_class('work') }}">
     <header class="panel-head">
-      <h2><a href="/-/work">Work</a></h2>
+      <h2><a href="/work">{{ names.work }}</a></h2>
       <span class="muted">{% if uni.semester and not uni.semester.before %}{% if uni.semester.on_break %}Break week{% elif uni.semester.after %}Semester over{% else %}Week {{ uni.semester.n }} of {{ uni.semester.total }}{% endif %} · {% endif %}{{ uni.top }} tasks</span>
     </header>
     <div class="home-picks">
@@ -105,18 +117,19 @@
       <ul class="task-list">
         {% for t in uni.next %}
         <li class="task p{{ t.priority }}" style="--c: {{ t.course_id|course_color }}"><div class="task-main">
-          <a class="task-title" href="/-/work?edit={{ t.id }}">{{ t.title }}</a>
+          <a class="task-title" href="/work?edit={{ t.id }}">{{ t.title }}</a>
           <div class="meta">{% if t.course %}<span class="subject">{{ t.course }}</span>{% endif %}
             <span class="{{ 'over-text' if t.days_left is not none and t.days_left < 0 }}">{% if t.due %}{{ t.due|nice_date }} · {{ t.due|days_ago }}{% else %}no deadline{% endif %}</span></div>
         </div></li>
         {% endfor %}
       </ul>
-      {% else %}<p class="empty">Nothing urgent or high priority. <a href="/-/work?view=add">Add a task</a>.</p>{% endif %}
+      {% else %}<p class="empty">Nothing urgent or high priority. <a href="/work?view=add">Add a task</a>.</p>{% endif %}
     </div>
     <div class="actions">
-      <a class="btn primary" href="/-/work">Open</a>
-      <a class="btn" href="/-/work?view=add">Add a task</a>
+      <a class="btn primary" href="/work">Open</a>
+      <a class="btn" href="/work?view=add">Add a task</a>
     </div>
+    {% if 'work' in locked %}{{ cover('work') }}{% endif %}
   </aside>
 {% endif %}
   </div>

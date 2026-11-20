@@ -48,8 +48,9 @@ INSERT OR IGNORE INTO settings (key, value, about) VALUES
     ('revise_after_days', '7', 'A learnt word moves to "to revise" this many days after you last studied it'),
     ('daily_learn', '2', 'Words from "to learn" in Today''s words'),
     ('daily_revise', '1', 'Words from "to revise" in Today''s words (if fewer are due, "to learn" fills the gap)'),
-    ('daily_hsk', '', 'HSK levels Today''s new words come from, e.g. "1,2" (blank = every level)'),
-    ('home_flip', 'on', 'Home: Today''s words start face down and flip when clicked (on) or show straight away (off)');
+    ('daily_hsk', '', 'HSK levels Today''s new words come from, e.g. "1,2" (blank = every level)');
+-- Home's words used to start face down and flip open (removed 2026-11-20)
+DELETE FROM settings WHERE key = 'home_flip';
 
 -- Blank fields in the add/edit forms mean "no value"
 DROP TRIGGER IF EXISTS words_blank_to_null;

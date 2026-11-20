@@ -46,15 +46,110 @@ document.addEventListener("focusout", () => (tip.hidden = true));
 // --- Everything that belongs to one page: runs on load and after each page swap ---------
 
 function initPage() {
-  // --- Home: today's words start face down; a click flips one over
-
-  $$(".home-chinese .word.pick").forEach((card) => {
-    card.addEventListener("click", () => {
-      if (card.classList.contains("open") || card.classList.contains("flipping")) return;
-      card.classList.add("flipping");
-      setTimeout(() => { card.classList.add("open"); card.classList.remove("flipping"); }, 150);
+  // Keep dates readable and consistent regardless of the browser's locale.
+  for (const input of $$("[data-date-input]")) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(input.value)) {
+      const [year, month, day] = input.value.split("-");
+      input.value = `${day}/${month}/${year}`;
+    }
+    const controls = document.createElement("span");
+    controls.className = "date-controls";
+    input.before(controls);
+    controls.append(input);
+    const picker = document.createElement("input");
+    picker.type = "date";
+    picker.tabIndex = -1;
+    picker.setAttribute("aria-hidden", "true");
+    picker.className = "date-picker";
+    const initial = input.value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (initial) picker.value = `${initial[3]}-${initial[2]}-${initial[1]}`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "date-picker-button";
+    button.textContent = "\uf073";
+    button.setAttribute("aria-label", "Choose date");
+    button.addEventListener("click", () => picker.showPicker ? picker.showPicker() : picker.click());
+    picker.addEventListener("change", () => {
+      const [year, month, day] = picker.value.split("-");
+      if (year) input.value = `${day}/${month}/${year}`;
     });
-  });
+    controls.append(button, picker);
+    input.form?.addEventListener("submit", () => {
+      const match = input.value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (match) input.value = `${match[3]}-${match[2]}-${match[1]}`;
+    });
+  }
+
+  // --- Page menus (the tabs next to each page's title): drag a tab to move it. The order is
+  // remembered per page and menu in this browser, like the top menu's.
+
+  for (const [i, group] of $$(".page-head .tabs .tab-group").entries()) {
+    const key = `tabs:${location.pathname}:${i}`;
+    // A tab is known by its first parameter (?view=plans -> "view=plans"), or its path
+    const id = (a) => {
+      const url = new URL(a.getAttribute("href"), location.href);
+      const [first] = url.searchParams.entries();
+      return first ? first.join("=") : url.pathname;
+    };
+    const tabs = () => $$(":scope > a", group);
+    try {
+      for (const k of JSON.parse(localStorage.getItem(key) || "[]")) {
+        const a = tabs().find((x) => id(x) === k);
+        if (a) group.appendChild(a);
+      }
+    } catch {}
+    let dragged = null;
+    group.addEventListener("dragstart", (e) => {
+      dragged = e.target.closest?.("a");
+      if (!dragged || dragged.parentElement !== group) return (dragged = null);
+      e.dataTransfer.effectAllowed = "move";
+      dragged.classList.add("dragging");
+    });
+    group.addEventListener("dragover", (e) => {
+      if (!dragged) return;
+      e.preventDefault();
+      const after = tabs().filter((a) => a !== dragged).find((a) => {
+        const r = a.getBoundingClientRect();
+        return e.clientX < r.left + r.width / 2;
+      });
+      if (after) group.insertBefore(dragged, after); else group.appendChild(dragged);
+    });
+    group.addEventListener("drop", (e) => e.preventDefault());
+    group.addEventListener("dragend", () => {
+      dragged?.classList.remove("dragging");
+      dragged = null;
+      try { localStorage.setItem(key, JSON.stringify(tabs().map(id))); } catch {}
+    });
+  }
+
+  // A field marked autofocus gets the cursor after a page swap too
+  $("main [autofocus]")?.focus();
+
+  // Opened a locked page directly: the server sent Home with ?unlock=<that page>
+  const wanted = new URLSearchParams(location.search).get("unlock");
+  if (wanted !== null) {
+    const url = new URL(location.href);
+    url.searchParams.delete("unlock");
+    url.searchParams.delete("error");
+    history.replaceState(null, "", url);
+    showUnlock(wanted);
+  }
+
+  // --- Settings: Home's widget switches save as soon as they're flipped
+
+  for (const form of $$("form[data-autosave]")) {
+    const status = $(".autosave-status", form);
+    form.addEventListener("change", async () => {
+      if (status) status.textContent = "Saving…";
+      try {
+        const res = await fetch(form.action, { method: "POST", body: new URLSearchParams(new FormData(form)) });
+        if (!res.ok) throw new Error();
+        if (status) status.textContent = "Saved";
+      } catch {
+        if (status) status.textContent = "Couldn't save; try again";
+      }
+    });
+  }
 
   // --- Quotes: the ZenQuotes switch saves as soon as it's ticked
 
@@ -110,7 +205,7 @@ function initPage() {
 
     async function move(ids, to) {
       const body = new URLSearchParams({ ids: ids.join(","), to });
-      const res = await fetch("/-/chinese/move", { method: "POST", body, headers: { Accept: "application/json" } });
+      const res = await fetch("/hsk/move", { method: "POST", body, headers: { Accept: "application/json" } });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error);
       for (const [status, n] of Object.entries(data.counts)) {
@@ -147,21 +242,96 @@ function initPage() {
   const exercise = $("#exercise");
 
   if (exercise) {
-    const last = JSON.parse($("#last-sets").textContent);
-    // Picking a known exercise fills in what you did last time
-    exercise.addEventListener("change", () => {
-      const found = last.find((s) => s.exercise.toLowerCase() === exercise.value.trim().toLowerCase());
-      if (!found) return;
-      $("#reps").value = found.reps;
-      $("#weight").value = found.weight;
+    // last: exercise -> the sets of its last session; done: exercise -> entries already on this day
+    const { last, done } = JSON.parse($("#log-data").textContent);
+    const setRows = $("#set-rows");
+    const submit = $("#log-submit");
+    const reps = (row) => $("[name=reps]", row);
+    const weight = (row) => $("[name=weight]", row);
+    const key = () => exercise.value.trim().toLowerCase();
+
+    // Set numbers carry on from what's already logged for this exercise on this day
+    const renumber = () => {
+      const before = done[key()] || 0;
+      [...setRows.children].forEach((row, i) => ($(".set-idx", row).textContent = before + i + 1));
+      const filled = $$("[name=reps]", setRows).filter((i) => i.value.trim()).length;
+      submit.textContent = filled > 1 ? `Log ${filled} sets` : "Log it";
+    };
+    const addSet = (r = "", w = "") => {
+      const row = setRows.lastElementChild.cloneNode(true);
+      reps(row).value = r;
+      weight(row).value = w;
+      setRows.append(row);
+      renumber();
+      return row;
+    };
+    // Picking a known exercise fills in every set of its last session, unless you've typed in the sets
+    // (sets it filled in itself and you haven't touched are replaced when you pick another exercise)
+    let autoFilled = false;
+    const fillLast = () => {
+      const sets = last[key()];
+      renumber();
+      if (!sets || (!autoFilled && $$("input", setRows).some((i) => i.value.trim()))) return;
+      autoFilled = true;
+      while (setRows.children.length > 1) setRows.lastElementChild.remove();
+      // Weight stays empty when it was logged without reps or weight (bouldering, say)
+      const value = (s) => [s.reps ?? "", s.reps || s.weight ? s.weight : ""];
+      [reps(setRows.firstElementChild).value, weight(setRows.firstElementChild).value] = value(sets[0]);
+      for (const s of sets.slice(1)) addSet(...value(s));
+      renumber();
+    };
+    exercise.addEventListener("input", renumber);
+    exercise.addEventListener("change", fillLast);
+
+    // A new set copies the weight of the one above; its reps are yours to type
+    $("#add-set").addEventListener("click", () => {
+      autoFilled = false;
+      reps(addSet("", weight(setRows.lastElementChild).value)).focus();
     });
+    setRows.addEventListener("click", (e) => {
+      const row = e.target.closest("[data-remove-set]")?.closest("li");
+      if (!row) return;
+      autoFilled = false;
+      if (setRows.children.length > 1) row.remove();
+      else reps(row).value = weight(row).value = "";
+      renumber();
+    });
+    setRows.addEventListener("input", () => {
+      autoFilled = false;
+      renumber();
+    });
+
+    // Enter fills the sets in instead of logging: exercise -> reps -> weight -> next set's reps.
+    // Ctrl+Enter (anywhere in the form) logs.
+    exercise.form.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        exercise.form.requestSubmit();
+        return;
+      }
+      const row = e.target.closest("#set-rows > li");
+      if (e.target === exercise) {
+        e.preventDefault();
+        fillLast();
+        reps(setRows.firstElementChild).focus();
+      } else if (row && e.target.name === "reps") {
+        e.preventDefault();
+        weight(row).focus();
+        weight(row).select();
+      } else if (row) {
+        e.preventDefault();
+        reps(row.nextElementSibling || addSet("", weight(row).value)).focus();
+      }
+    });
+    renumber();
     for (const form of $$("form.delete")) {
       form.addEventListener("submit", (e) => {
-        if (!confirm("Delete this set?")) e.preventDefault();
+        if (!confirm("Delete this entry?")) e.preventDefault();
       });
     }
-    // After logging, keep the cursor ready for the next set
-    if (new URLSearchParams(location.search).has("msg")) $("#reps").select();
+    // After logging, the form is empty again and the cursor is ready for the next entry
+    if (new URLSearchParams(location.search).has("msg")) exercise.focus();
   }
 
   // --- Workout plans -------------------------------------------------------------------
@@ -264,7 +434,7 @@ function initPage() {
     (async () => {
       refreshStatus.textContent = "Fetching prices, IBKR and Wise…";
       try {
-        const result = await (await fetch("/-/finance/refresh", { method: "POST" })).json();
+        const result = await (await fetch("/finance/refresh", { method: "POST" })).json();
         const live = $("[data-refresh]");
         if (result.fetched && live) {
           const res = await fetch(live.dataset.refresh, { headers: { Accept: "text/html" } });
@@ -282,9 +452,10 @@ function initPage() {
     })();
   }
 
-  // --- Quotes and Knowledge: search what's shown -------------------------------------------
+  // --- Quotes and Thoughts: search what's shown -------------------------------------------
 
-  const notes = $("#notes");
+  // (#note-q too: the workout log's Notes field is also called #notes)
+  const notes = $("#note-q") && $("#notes");
 
   if (notes) {
     const q = $("#note-q"), shown = $("#note-shown");
@@ -308,8 +479,55 @@ initPage();
 // The top bar and background stay put; only <main> is swapped for the next page's, so the
 // window never goes blank in between. Anything that isn't a plain page falls back to a normal load.
 
-const isPage = (url) => url.origin === location.origin && (url.pathname === "/" || url.pathname.startsWith("/-/"));
+// The app's own pages (Home, /hsk, /finance, ...), which swap in place; Datasette's raw pages (/finance-db/...) load whole
+const isPage = (url) => url.origin === location.origin && /^\/(hsk|workouts|finance|quotes|thoughts|work|settings)?(\/|$)/i.test(url.pathname);
 const fetched = new Map();
+
+// --- The password popup: typing the password once opens every locked page -------------------
+
+function showUnlock(next) {
+  const dialog = $("#unlock-dialog");
+  if (!dialog) return false;
+  const form = $("form", dialog);
+  form.elements.next.value = next || "";
+  form.elements.password.value = "";
+  $(".unlock-error", dialog).hidden = true;
+  if (!dialog.open) dialog.showModal();
+  form.elements.password.focus();
+  return true;
+}
+
+document.addEventListener("submit", async (e) => {
+  const form = e.target;
+  if (!form.closest?.("#unlock-dialog")) return;
+  e.preventDefault();
+  const error = $(".unlock-error", form);
+  try {
+    const res = await fetch(form.action, {
+      method: "POST", headers: { Accept: "application/json" }, body: new URLSearchParams(new FormData(form)),
+    });
+    const result = await res.json().catch(() => ({ ok: false, error: "Couldn't unlock: try again." }));
+    if (!result.ok) throw new Error(result.error);
+    form.closest("dialog").close();
+    fetched.clear();  // pages fetched while they were locked
+    // Go where you were heading, or show this page again, now unlocked
+    const here = location.pathname + location.search, next = result.next && result.next !== here ? result.next : null;
+    go(next || here, Boolean(next));
+  } catch (err) {
+    error.textContent = err.message || "Couldn't unlock: try again.";
+    error.hidden = false;
+    form.elements.password.value = "";
+    form.elements.password.focus();
+  }
+});
+
+// A click on the dimmed page around the popup closes it
+document.addEventListener("click", (e) => {
+  const dialog = e.target.id === "unlock-dialog" ? e.target : null;
+  if (!dialog) return;
+  const r = dialog.getBoundingClientRect();
+  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
+});
 
 function fetchPage(url) {
   const hit = fetched.get(url.href);
@@ -327,10 +545,15 @@ let navigation = 0;
 
 async function go(href, push = true) {
   const url = new URL(href, location.href), id = ++navigation, main = $("main");
+  // ?unlock=... (a locked card, the Unlock button) opens the password popup over this page
+  if (url.searchParams.has("unlock") && showUnlock(url.searchParams.get("unlock"))) return;
   const slow = setTimeout(() => main.classList.add("loading"), 150);  // only if it takes a moment
   try {
     const { text, url: final } = await fetchPage(url);
     if (id !== navigation) return;
+    // A locked page: the server answered with Home + ?unlock=; stay here and ask for the password
+    const landed = new URL(final);
+    if (landed.searchParams.has("unlock") && showUnlock(landed.searchParams.get("unlock"))) return;
     const next = new DOMParser().parseFromString(text, "text/html");
     const same = (sel, attr) => next.querySelector(sel)?.getAttribute(attr) === document.querySelector(sel)?.getAttribute(attr);
     if (!next.querySelector("main") || !same('link[rel="stylesheet"]', "href") || !same("script[src]", "src")) throw new Error("full load");
@@ -341,10 +564,13 @@ async function go(href, push = true) {
       fresh.textContent = old.textContent;
       old.replaceWith(fresh);
     }
-    for (const a of $$(".main-nav a")) {
-      const current = next.querySelector(`.main-nav a[href="${a.getAttribute("href")}"]`)?.hasAttribute("aria-current");
-      if (current) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    // The menu and the top right follow the new page: names, hidden pages and locks can change
+    const nextNav = next.querySelector(".main-nav"), nextRight = next.querySelector(".top-right");
+    if (nextNav) {
+      $(".main-nav").replaceChildren(...[...nextNav.children].map((a) => document.importNode(a, true)));
+      window.applyNavOrder?.();
     }
+    if (nextRight) $(".top-right")?.replaceWith(document.importNode(nextRight, true));
     if (push) history.pushState(null, "", final);
     lastPath = location.pathname + location.search;
     scrollTo(0, 0);

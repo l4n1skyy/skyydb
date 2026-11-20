@@ -1,9 +1,9 @@
 {# The Investments tab, all of it read-only: trades and deposits come from IBKR, what the
    deposits cost from Wise, prices from Yahoo Finance; problems with those show at the
    top. When the Finance page opens it asks for the latest of those (POST
-   /-/finance/refresh), then fetches this again from /-/finance/investments/live and
+   /finance/refresh), then fetches this again from /finance/investments/live and
    swaps it in. #}
-<div class="live" id="investments-live" data-refresh="/-/finance/investments/live?ticker={{ (ticker or '')|urlencode }}&amp;range={{ range }}">
+<div class="live" id="investments-live" data-refresh="/finance/investments/live?ticker={{ (ticker or '')|urlencode }}&amp;range={{ range }}">
 {% if ibkr.error %}<p class="flash error">IBKR didn't work last time: {{ ibkr.error }}</p>{% endif %}
 {% if wise.error %}<p class="flash error">Wise didn't work last time: {{ wise.error }}</p>{% endif %}
 {% for d in ibkr.waiting %}<p class="flash error">{{ d.amount|amount(d.currency) }} arrived at IBKR on {{ d.date|nice_date(true) }}, but no Wise payment matches it yet, so it counts at that day's market rate, without a fee.</p>{% endfor %}

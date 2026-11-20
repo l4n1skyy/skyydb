@@ -1,15 +1,19 @@
-"""The day-to-day pages: home, Chinese study lists, the workout log, finance, and stats.
+"""The day-to-day pages: home, HSK (Chinese) study lists, the workout log, finance, quotes,
+thoughts, work, and Settings.
 
 Datasette's own pages (/chinese, /workouts, /finance and their tables) stay available for
-browsing and editing raw rows; these pages are the interface for everything else.
+browsing and editing raw rows (listed on Settings); these pages are the interface for everything else.
+Pages can be renamed, hidden and locked with a password on Settings (settings.json).
 Colours are Catppuccin Mocha on my own background (theme()); the font is the desktop's monospace.
 """
 
 import asyncio
 import base64
 import hashlib
+import hmac
 import json
 import re
+import secrets
 import subprocess
 import time
 import urllib.error
@@ -17,13 +21,14 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from bisect import bisect_right
 from datetime import date, datetime, timedelta, timezone
+from itertools import zip_longest
 from html import escape
-from math import floor, log10
+from math import ceil, floor, log10
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode
 
 from datasette import hookimpl
-from datasette.utils.asgi import Response
+from datasette.utils.asgi import Request, Response
 from markupsafe import Markup
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -39,7 +44,7 @@ _background = set()
 
 # Which features are installed: the words in the `features` file next to this folder's
 # README (written by `skyydb install`); without the file, all of them.
-ALL_FEATURES = ("chinese", "workouts", "finance", "work", "quotes", "knowledge")
+ALL_FEATURES = ("chinese", "workouts", "finance", "work", "elearn", "quotes", "thoughts")
 
 
 def installed_features():
@@ -47,6 +52,7 @@ def installed_features():
         words = (ROOT / "features").read_text().split()
     except OSError:
         return ALL_FEATURES
+    words = ["thoughts" if w == "knowledge" else w for w in words]  # Thoughts used to be called Knowledge
     return tuple(f for f in ALL_FEATURES if f in words)
 
 
@@ -71,6 +77,12 @@ async def _sync_every_few_minutes(datasette):
 
 @hookimpl
 def startup(datasette):
+    # Raw data lives at /<database>-db (/finance-db/expenses), so the pages can have the plain
+    # addresses (/finance) without the two clashing
+    for name, db in datasette.databases.items():
+        if not name.startswith("_"):
+            db.route = f"{name}-db"
+
     async def inner():
         if "chinese" not in FEATURES:
             return
@@ -154,10 +166,177 @@ def _logo_uri():
     return _LOGO["uri"]
 
 
+# --- Settings: page names, hidden and locked pages, Home's widgets -----------------------
+
+# Kept in settings.json next to the README, out of git (it holds the password's hash)
+SETTINGS_FILE = ROOT / "settings.json"
+# Every page: its default name, its address, and the addresses that belong to it. Locking a
+# page locks all of them, its databases' raw Datasette pages too (at /<database>-db, see startup).
+PAGES = {
+    "home": dict(name="Home", url="/", paths=(), dbs=()),
+    "chinese": dict(name="HSK", url="/hsk", paths=("/hsk",), dbs=("chinese",)),
+    "workouts": dict(name="Workouts", url="/workouts", paths=("/workouts",), dbs=("workouts",)),
+    "finance": dict(name="Finance", url="/finance", paths=("/finance",), dbs=("finance",)),
+    "quotes": dict(name="Quotes", url="/quotes", paths=("/quotes",), dbs=("quotes",)),
+    "thoughts": dict(name="Thoughts", url="/thoughts", paths=("/thoughts",), dbs=("thoughts",)),
+    "work": dict(name="Work", url="/work", paths=("/work",), dbs=("work", "elearn")),
+}
+# Home's widgets, in the order they appear, and the page each one belongs to
+WIDGETS = {
+    "date": dict(name="Today's date", page=None),
+    "quote": dict(name="Quote of the day", page="quotes"),
+    "chinese": dict(name="Today's words", page="chinese"),
+    "workouts": dict(name="Streaks and today's plan", page="workouts"),
+    "finance": dict(name="Today's budget", page="finance"),
+    "work": dict(name="Urgent and high-priority tasks", page="work"),
+}
+DEFAULT_SETTINGS = {"names": {}, "hidden": [], "locked": [], "widgets_off": [], "password": "", "unlock_minutes": 10}
+OPEN_COOKIE, OPEN_NAMESPACE = "skyydb_open", "skyydb-open"
+_settings = {}
+
+
+def settings():
+    """settings.json (with the defaults for anything missing), read again only when the file changes"""
+    try:
+        stamp = SETTINGS_FILE.stat().st_mtime_ns
+    except OSError:
+        stamp = None
+    if "data" not in _settings or _settings.get("stamp") != stamp:
+        data = json.loads(json.dumps(DEFAULT_SETTINGS))
+        if stamp is not None:
+            try:
+                data.update(json.loads(SETTINGS_FILE.read_text()))
+            except (OSError, ValueError):
+                pass
+        _settings.update(stamp=stamp, data=data)
+    return json.loads(json.dumps(_settings["data"]))  # a copy, so changing it changes nothing until saved
+
+
+def save_settings(data):
+    tmp = SETTINGS_FILE.with_name(SETTINGS_FILE.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    tmp.replace(SETTINGS_FILE)
+    _settings.clear()
+
+
+def page_installed(key):
+    return key == "home" or key in FEATURES
+
+
+def page_names(s=None):
+    names = (s or settings())["names"]
+    return {k: (names.get(k) or "").strip() or p["name"] for k, p in PAGES.items()}
+
+
+def hash_password(password, salt=None):
+    salt = salt or secrets.token_bytes(16)
+    digest = hashlib.scrypt(password.encode(), salt=salt, n=2 ** 14, r=8, p=1)
+    return f"scrypt${salt.hex()}${digest.hex()}"
+
+
+def password_ok(password):
+    stored = settings()["password"]
+    try:
+        _, salt, _ = stored.split("$")
+        return bool(password) and hmac.compare_digest(hash_password(password, bytes.fromhex(salt)), stored)
+    except ValueError:
+        return False
+
+
+def unlocked_until(datasette, cookies):
+    """Typing the password once unlocks every locked page in this browser until this time (0 = until
+    the browser closes); None = they're locked. The cookie is signed with Datasette's secret, which
+    is new each start: a restart locks everything again."""
+    try:
+        until = datasette.unsign(cookies.get(OPEN_COOKIE, ""), OPEN_NAMESPACE).get("until")
+    except Exception:
+        return None
+    return until if isinstance(until, (int, float)) and (until == 0 or until > time.time()) else None
+
+
+def locked_pages(datasette, cookies, s=None):
+    """The pages that are locked right now: locked on Settings (with a password set), unless unlocked here"""
+    s = s or settings()
+    if not s["password"] or unlocked_until(datasette, cookies) is not None:
+        return set()
+    return {p for p in s["locked"] if p in PAGES and p != "home"}
+
+
+def open_until(s=None):
+    minutes = (s or settings())["unlock_minutes"]
+    return time.time() + minutes * 60 if minutes else 0
+
+
+def set_open_cookie(datasette, response, until):
+    """Unlock everything until `until` (see unlocked_until), or lock it all again (None)"""
+    if until is not None:
+        response.set_cookie(OPEN_COOKIE, datasette.sign({"until": until}, OPEN_NAMESPACE), httponly=True, samesite="lax")
+    else:
+        response.set_cookie(OPEN_COOKIE, "", max_age=0, httponly=True, samesite="lax")
+
+
+def page_of(path):
+    """Which page an address belongs to: /finance/... and /finance-db/... (its raw rows) are Finance's"""
+    path = path.lower()  # the pages answer in any case (/HSK)
+    for key, p in PAGES.items():
+        if any(path == x or path.startswith(x + "/") for x in p["paths"]):
+            return key
+        if any(path == f"/{db}-db" or path.startswith((f"/{db}-db/", f"/{db}-db.")) for db in p["dbs"]):
+            return key
+    return None
+
+
+def safe_next(target):
+    """Only addresses on this app, so a link can't send you elsewhere after unlocking"""
+    target = target or ""
+    return target if target.startswith("/") and not target.startswith("//") and "\\" not in target else ""
+
+
+def widget_shown(key, s=None):
+    """A Home widget shows when it's switched on and its page is installed and not hidden"""
+    s = s or settings()
+    page = WIDGETS[key]["page"]
+    return key not in s["widgets_off"] and (page is None or (page in FEATURES and page not in s["hidden"]))
+
+
+@hookimpl
+def asgi_wrapper(datasette):
+    """A locked page, everything under it and its raw Datasette pages send you to Home with the
+    password popup open (or, for anything that isn't a page, answer "locked") until unlocked."""
+    def wrap(app):
+        async def guard(scope, receive, send):
+            page = page_of(scope.get("path", "")) if scope["type"] == "http" else None
+            if page:
+                request = Request(scope, receive)
+                if page in locked_pages(datasette, request.cookies):
+                    if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
+                        query = scope.get("query_string", b"").decode()
+                        response = back("/", unlock=scope["path"] + (f"?{query}" if query else ""))
+                    else:
+                        response = Response.text("That page is locked. Unlock it in the app first.", status=403)
+                    await response.asgi_send(send)
+                    return
+            await app(scope, receive, send)
+        return guard
+    return wrap
+
+
 async def render(datasette, request, template, **context):
+    s = settings()
+    names, locked = page_names(s), locked_pages(datasette, request.cookies, s)
+    lock_on = bool(s["password"] and s["locked"])  # anything to lock at all
+    until = unlocked_until(datasette, request.cookies)
+    nav = [dict(key=k, name=names[k], url=p["url"], locked=k in locked)
+           for k, p in PAGES.items() if page_installed(k) and k not in s["hidden"]]
     context.update(features=FEATURES, theme=theme(), ui_font=UI_FONT, v=_asset_version(), logo_uri=_logo_uri(), msg=request.args.get("msg"),
-                   error=request.args.get("error"))
-    return Response.html(await datasette.render_template(template, context, request=request))
+                   error=request.args.get("error"), names=names, nav=nav, locked=locked, lock_on=lock_on,
+                   any_open=lock_on and until is not None,
+                   here=request.path + (f"?{request.query_string}" if request.query_string else ""))
+    response = Response.html(await datasette.render_template(template, context, request=request))
+    # Using the app keeps it unlocked: the minutes start again
+    if lock_on and until:
+        set_open_cookie(datasette, response, open_until(s))
+    return response
 
 
 def back(path, **params):
@@ -236,6 +415,7 @@ def month_name(ym, short=False):
 def prepare_jinja2_environment(env):
     env.filters["nice_date"] = nice_date
     env.filters["days_ago"] = days_ago
+    env.filters["name_color"] = lambda name: UNI_COLOURS[int(hashlib.md5(str(name).encode()).hexdigest(), 16) % len(UNI_COLOURS)] if name else "var(--muted)"
     env.filters["course_color"] = lambda cid: UNI_COLOURS[(int(cid or 0) - 1) % len(UNI_COLOURS)] if cid else "var(--muted)"
     env.filters["short_due"] = short_due
     env.filters["num"] = num
@@ -484,17 +664,18 @@ def weeks_back(n):
 # --- Home -----------------------------------------------------------------------
 
 async def home(request, datasette):
-    on = FEATURES
-    db = lambda name: datasette.get_database(name) if name in on else None
+    s = settings()
+    # The widgets switched on in Settings (and whose page isn't hidden); a locked page's widget
+    # is covered, and stand-ins replace its data (stand_in)
+    show = {w: widget_shown(w, s) for w in WIDGETS}
+    locked = locked_pages(datasette, request.cookies, s)
+    db = lambda name: datasette.get_database(name) if name in FEATURES else None
     zh, wo, fi, un = db("chinese"), db("workouts"), db("finance"), db("work")
-    ctx = dict(page="home", shuffle=int(request.args.get("shuffle", "0")) if request.args.get("shuffle", "").isdigit() else 0)
-    if zh:
+    ctx = dict(page="home", show=show, shuffle=int(request.args.get("shuffle", "0")) if request.args.get("shuffle", "").isdigit() else 0)
+    if show["chinese"] and zh:
         await sync(datasette)
-        ctx.update(counts=await list_counts(zh), picks=await todays_words(zh, ctx["shuffle"]), flip=await home_flip(zh),
-                   upcoming=await one(zh, "SELECT revise_on, count(*) AS words FROM learnt GROUP BY revise_on ORDER BY revise_on LIMIT 1"),
-                   learnt_week=(await one(zh, """SELECT count(*) AS n FROM study_log WHERE to_status = 'learnt'
-                                    AND date >= date('now', 'localtime', '-6 days', 'weekday 1')"""))["n"])
-    if wo:
+        ctx["picks"] = await todays_words(zh, ctx["shuffle"])
+    if show["workouts"] and wo:
         ctx["streak"] = streaks({date.fromisoformat(r["date"]) for r in await rows(wo, "SELECT DISTINCT date FROM sets")})
         today_iso = date.today().isoformat()
         plan = await plan_for_day(wo, today_iso)
@@ -502,19 +683,44 @@ async def home(request, datasette):
             ctx["today_plan"] = dict(name=plan["name"], muscles=", ".join(plan["muscles"]), n=len(plan["exercises"]), rest=False)
         elif await is_rest_day(wo, today_iso):
             ctx["today_plan"] = dict(name="Rest day", muscles="", n=0, rest=True)
-    if fi:
+    if show["finance"] and fi:
         ctx["fin"] = await day_summary(fi, date.today().isoformat(), await budget_lines(fi))
-    if un:
+    if show["work"] and un:
         uni_open = await rows(un, "SELECT * FROM task_list")
         ctx["uni"] = dict(semester=await semester_week(un), open=len(uni_open),
                           next=sorted((t for t in uni_open if t["priority"] <= 2), key=lambda t: (t["priority"], t["due"] is None, t["due"] or ""))[:8],
                           overdue=sum(t["days_left"] is not None and t["days_left"] < 0 for t in uni_open),
                           week=sum(t["days_left"] is not None and 0 <= t["days_left"] <= 7 for t in uni_open),
                           top=sum(t["priority"] <= 2 for t in uni_open))
-    if "quotes" in on:
+    if show["quote"]:
         ctx["quote"] = await quote_of_the_day(datasette)
+    # A locked widget gets stand-ins shaped like its data, so its card keeps its size and nothing real is sent
+    stand_in(ctx, locked)
     ctx["today"] = dict(weekday=date.today().strftime("%A"), day=date.today().strftime("%d"), month=date.today().strftime("%m"), rest=date.today().strftime("%Y · %A"))
     return await render(datasette, request, "app_home.html", **ctx)
+
+
+def stand_in(ctx, locked):
+    """Swap a locked widget's data for stand-ins of the same shape: as many words, the same plan
+    lines, a budget bar or not, the quote with every letter an x. The card is laid out as usual
+    (so it's as big as it really is) but stays hidden under the lock."""
+    blank = lambda text: re.sub(r"\w", "x", text or "")
+    if "chinese" in locked and "picks" in ctx:
+        ctx["picks"] = [dict(id=0, character="字", pinyin="zì", english="word", type="", category="", hsk=None,
+                             status=w["status"]) for w in ctx["picks"]]
+    if "workouts" in locked and "streak" in ctx:
+        ctx["streak"] = {"days": 0, "weeks": 0}
+        if ctx.get("today_plan"):
+            p = ctx["today_plan"]
+            ctx["today_plan"] = dict(name=blank(p["name"]), muscles=blank(p["muscles"]), n=p["n"], rest=p["rest"])
+    if "finance" in locked and "fin" in ctx:
+        budget = ctx["fin"]["daily_total"].get("budget")
+        ctx["fin"] = {"daily_total": dict(budget=1 if budget else 0, spent=0, left=1, pct=0, over=False)}
+    if "work" in locked and "uni" in ctx:
+        ctx["uni"] = dict(semester=None, open=0, next=[], overdue=0, week=0, top=0)
+    if "quotes" in locked and ctx.get("quote"):
+        q = ctx["quote"]
+        ctx["quote"] = dict(api=False, text=blank(q.get("text")), author=blank(", ".join(filter(None, [q.get("author"), q.get("source")]))))
 
 
 def streaks(days):
@@ -547,11 +753,6 @@ async def daily_settings(zh):
 
     levels = [int(x) for x in found.get("daily_hsk", "").split(",") if x.strip().isdigit()]
     return count("daily_learn", 2), count("daily_revise", 1), levels
-
-
-async def home_flip(zh):
-    """Do Today's words start face down? (settings.home_flip, on unless switched off)"""
-    return (await one(zh, "SELECT value FROM settings WHERE key = 'home_flip'")).get("value") != "off"
 
 
 async def todays_words(zh, shuffle=0):
@@ -593,7 +794,7 @@ async def chinese(request, datasette):
     interval = int((await one(zh, "SELECT value FROM settings WHERE key = 'revise_after_days'"))["value"])
     n_learn, n_revise, levels = await daily_settings(zh)
     ctx = dict(page="chinese", tab=tab, counts=counts, moved=moved, interval=interval,
-               flip=await home_flip(zh), daily=dict(learn=n_learn, revise=n_revise, levels=levels),
+               daily=dict(learn=n_learn, revise=n_revise, levels=levels),
                hsk_levels=[r["hsk"] for r in await rows(zh, "SELECT DISTINCT hsk FROM words WHERE hsk IS NOT NULL ORDER BY hsk")],
                types=[r["name"] for r in await rows(zh, "SELECT name FROM types ORDER BY name")],
                categories=[r["name"] for r in await rows(zh, "SELECT name FROM categories ORDER BY name")])
@@ -648,14 +849,14 @@ async def chinese_move(request, datasette):
         return Response.json({"ok": True, "counts": await list_counts(zh)})
     if form.get("from") == "home":
         return back("/", shuffle=form.get("shuffle") if form.get("shuffle") != "0" else None)
-    return back("/-/chinese", list=form.get("list"))
+    return back("/hsk", list=form.get("list"))
 
 
 async def chinese_add(request, datasette):
     form = await request.post_vars()
     fields = {k: (form.get(k) or "").strip() for k in ("character", "pinyin", "english", "notes", "type", "category", "hsk")}
     if not fields["character"]:
-        return back("/-/chinese", list="add", error="A word needs a character.")
+        return back("/hsk", list="add", error="A word needs a character.")
     zh = datasette.get_database("chinese")
     try:
         await zh.execute_write("""
@@ -663,8 +864,8 @@ async def chinese_add(request, datasette):
             VALUES (:character, :pinyin, :english, :notes, :type, :category, NULLIF(:hsk, ''))""", fields)
     except Exception as e:
         reason = "it's already in the database" if "UNIQUE" in str(e) else str(e)
-        return back("/-/chinese", list="add", error=f"Couldn't add {fields['character']}: {reason}.")
-    return back("/-/chinese", list="add", msg=f"Added {fields['character']} to To learn.")
+        return back("/hsk", list="add", error=f"Couldn't add {fields['character']}: {reason}.")
+    return back("/hsk", list="add", msg=f"Added {fields['character']} to To learn.")
 
 
 async def chinese_settings(request, datasette):
@@ -673,12 +874,11 @@ async def chinese_settings(request, datasette):
     numbers = {"days": 1, "daily_learn": 0, "daily_revise": 0}
     for key, least in numbers.items():
         if not form.get(key, "").isdigit() or int(form[key]) < least:
-            return back("/-/chinese", list="settings", error="Those settings must be whole numbers.")
+            return back("/hsk", list="settings", error="Those settings must be whole numbers.")
     if int(form["daily_learn"]) + int(form["daily_revise"]) < 1:
-        return back("/-/chinese", list="settings", error="Today's words needs at least one word.")
+        return back("/hsk", list="settings", error="Today's words needs at least one word.")
     levels = sorted(int(k[4:]) for k in form if k.startswith("hsk_") and k[4:].isdigit())
-    flip = "on" if form.get("home_flip") else "off"
-    values = {"home_flip": flip, "revise_after_days": str(int(form["days"])), "daily_learn": str(int(form["daily_learn"])),
+    values = {"revise_after_days": str(int(form["days"])), "daily_learn": str(int(form["daily_learn"])),
               "daily_revise": str(int(form["daily_revise"])), "daily_hsk": ",".join(map(str, levels))}
 
     def save(conn):
@@ -687,7 +887,7 @@ async def chinese_settings(request, datasette):
                          "ON CONFLICT (key) DO UPDATE SET value = excluded.value", [key, value])
     await zh.execute_write_fn(save)
     await sync(datasette)
-    return back("/-/chinese", list="settings", msg="Saved. Home's Today's words follows the new settings.")
+    return back("/hsk", list="settings", msg="Saved. Home's Today's words follows the new settings.")
 
 
 # --- Workouts -------------------------------------------------------------------
@@ -708,7 +908,7 @@ async def workouts(request, datasette):
     ctx = dict(page="workouts", view=view, day=day, today=date.today().isoformat())
     if view == "log":
         sets = await rows(wo, """
-            SELECT id, exercise, reps, weight,
+            SELECT id, exercise, reps, weight, notes,
                    ROW_NUMBER() OVER (PARTITION BY exercise ORDER BY id) AS set_no,
                    min(id) OVER (PARTITION BY exercise) AS first_id
             FROM sets WHERE date = :d ORDER BY first_id, id""", {"d": day})
@@ -718,21 +918,33 @@ async def workouts(request, datasette):
                 groups.append({"exercise": s["exercise"], "sets": []})
             groups[-1]["sets"].append(s)
         for g in groups:
-            g["reps"] = sum(s["reps"] for s in g["sets"])
-            g["volume"] = sum(s["reps"] * s["weight"] for s in g["sets"])
+            # Entries without reps ("Bouldering") are done, but aren't counted as sets
+            g["counted"] = sum(s["reps"] is not None for s in g["sets"])
+            g["reps"] = sum(s["reps"] or 0 for s in g["sets"])
+            g["volume"] = sum((s["reps"] or 0) * s["weight"] for s in g["sets"])
         last_per_exercise = await rows(wo, """
             SELECT s.exercise, s.reps, s.weight FROM sets s
             JOIN (SELECT exercise, max(id) AS id FROM sets GROUP BY exercise) m ON m.id = s.id
             ORDER BY s.id DESC""")
-        last = last_per_exercise[0] if last_per_exercise else {}
-        prefill = {
-            "exercise": request.args.get("exercise", last.get("exercise", "")),
-            "reps": request.args.get("reps", last.get("reps", "")),
-            "weight": request.args.get("weight", plain(last["weight"]) if last else ""),
-        }
+        # The form starts with one empty set row; only a failed log (or a link) fills it in.
+        # A failed log sends its rows back as "8,8,6" / "60,60,62.5".
+        prefill = {k: request.args.get(k, "") for k in ("exercise", "notes")}
+        prefill["sets"] = [{"reps": r, "weight": w} for r, w in zip_longest(
+            request.args.get("reps", "").split(","), request.args.get("weight", "").split(","), fillvalue="")]
+        done = {g["exercise"].lower(): len(g["sets"]) for g in groups}
+        # Picking an exercise in the form fills in every set of its last session before this day
+        # (or its last entry, when it was only done on this day or later)
+        last_sets = {}
+        for s in await rows(wo, """
+                SELECT s.exercise, s.reps, s.weight FROM sets s
+                JOIN (SELECT exercise, max(date) AS date FROM sets WHERE date < :d GROUP BY exercise) m
+                  ON m.exercise = s.exercise AND m.date = s.date
+                ORDER BY s.id""", {"d": day}):
+            last_sets.setdefault(s["exercise"].lower(), []).append({"reps": s["reps"], "weight": s["weight"]})
+        for e in last_per_exercise:
+            last_sets.setdefault(e["exercise"].lower(), [{"reps": e["reps"], "weight": e["weight"]}])
         plan = await plan_for_day(wo, day)
         if plan:
-            done = {g["exercise"].lower(): len(g["sets"]) for g in groups}
             last_weight = {e["exercise"].lower(): e["weight"] for e in last_per_exercise}
             for e in plan["exercises"]:
                 e["done"] = done.get(e["exercise"].lower(), 0)
@@ -740,9 +952,10 @@ async def workouts(request, datasette):
                 e["log_reps"] = int(first.group()) if first else ""
                 e["log_weight"] = e["weight"] if e["weight"] is not None else last_weight.get(e["exercise"].lower(), 0)
         ctx.update(
-            plan=plan, rest_day=plan is None and await is_rest_day(wo, day),
+            plan=plan, plans=await all_plans(wo), rest_day=plan is None and await is_rest_day(wo, day),
             groups=groups, prefill=prefill, last_per_exercise=last_per_exercise,
-            total_sets=len(sets), total_volume=sum(g["volume"] for g in groups),
+            log_data={"last": last_sets, "done": done},
+            total_sets=sum(g["counted"] for g in groups), total_volume=sum(g["volume"] for g in groups),
             prev_day=(date.fromisoformat(day) - timedelta(days=1)).isoformat(),
             next_day=(date.fromisoformat(day) + timedelta(days=1)).isoformat() if day < date.today().isoformat() else None,
         )
@@ -836,7 +1049,7 @@ async def plan_save(request, datasette):
     get = lambda key: (form.get(key) or [""])[0].strip()
     plan_id, name = get("id"), get("name")
     if not name:
-        return back("/-/workouts", view="plans", plan=plan_id or "new", error="A plan needs a name.")
+        return back("/workouts", view="plans", plan=plan_id or "new", error="A plan needs a name.")
     columns = [form.get(k, []) for k in ("exercise", "sets", "reps", "weight", "ex_notes", "muscle")]
     exercises, muscles = [], {}
     for exercise, sets, reps, weight, notes, muscle in zip(*columns):
@@ -848,7 +1061,7 @@ async def plan_save(request, datasette):
             if (sets_n is not None and sets_n < 1) or (weight_n is not None and weight_n < 0):
                 raise ValueError
         except ValueError:
-            return back("/-/workouts", view="plans", plan=plan_id or "new",
+            return back("/workouts", view="plans", plan=plan_id or "new",
                         error=f"{exercise.strip()}: sets must be a whole number above 0 and weight 0 or more.")
         exercises.append((exercise.strip(), sets_n, reps.strip(), weight_n, notes.strip()))
         muscles[exercise.strip()] = ", ".join(split_muscles(muscle))
@@ -873,8 +1086,9 @@ async def plan_save(request, datasette):
         await datasette.get_database("workouts").execute_write_fn(write)
     except Exception as e:
         reason = "there's already a plan with that name" if "UNIQUE" in str(e) else str(e)
-        return back("/-/workouts", view="plans", plan=plan_id or "new", error=f"Couldn't save {name}: {reason}.")
-    return back("/-/workouts", view="plans", msg=f"Saved {name} ({len(exercises)} exercise{'s' * (len(exercises) != 1)}).")
+        return back("/workouts", view="plans", plan=plan_id or "new", error=f"Couldn't save {name}: {reason}.")
+    return back("/workouts", view="plans",
+                msg=f"Saved {name} ({len(exercises)} exercise{'s' * (len(exercises) != 1)})." if exercises else f"Saved {name}.")
 
 
 async def plan_delete(request, datasette):
@@ -883,7 +1097,7 @@ async def plan_delete(request, datasette):
     plan = await one(wo, "SELECT id, name FROM plans WHERE id = :id", {"id": form.get("id")})
     if plan:
         await wo.execute_write("DELETE FROM plans WHERE id = ?", [plan["id"]])
-    return back("/-/workouts", view="plans", msg=f"Deleted {plan['name']}." if plan else None)
+    return back("/workouts", view="plans", msg=f"Deleted {plan['name']}." if plan else None)
 
 
 async def schedule_week(request, datasette):
@@ -898,14 +1112,14 @@ async def schedule_week(request, datasette):
                 conn.execute("DELETE FROM plan_schedule WHERE day = ?", [key])
 
     await datasette.get_database("workouts").execute_write_fn(write)
-    return back("/-/workouts", view="plans", msg="Saved your weekly schedule.")
+    return back("/workouts", view="plans", msg="Saved your weekly schedule.")
 
 
 async def schedule_date(request, datasette):
     form = await request.post_vars()
     day, value = valid_date(form.get("date")), form.get("plan", "")
     if not day:
-        return back("/-/workouts", view="plans", error="Pick a date.")
+        return back("/workouts", view="plans", error="Pick a date.")
     wo = datasette.get_database("workouts")
     if value == "weekly":
         await wo.execute_write("DELETE FROM plan_schedule WHERE day = ?", [day])
@@ -915,7 +1129,7 @@ async def schedule_date(request, datasette):
         await wo.execute_write("INSERT OR REPLACE INTO plan_schedule (day, plan_id) VALUES (?, ?)", [day, plan_id])
         name = (await one(wo, "SELECT name FROM plans WHERE id = :id", {"id": plan_id})).get("name") if plan_id else None
         msg = f"{nice_date(day)}: {name or 'rest day'}."
-    return back("/-/workouts", view="plans", msg=msg)
+    return back("/workouts", view="plans", msg=msg)
 
 
 async def workout_stats(wo, exercise):
@@ -934,40 +1148,106 @@ async def workout_stats(wo, exercise):
     exercises = [r["exercise"] for r in await rows(wo, "SELECT exercise FROM sets GROUP BY exercise ORDER BY count(*) DESC")]
     exercise = exercise if exercise in exercises else (exercises[0] if exercises else None)
     progress = await rows(wo, """
-        SELECT date, max(weight) AS heaviest, max(reps) AS most_reps, count(*) AS sets,
+        SELECT date, max(weight) AS heaviest, max(reps) AS most_reps, count(reps) AS sets,
                round(max(weight * (1 + reps / 30.0)), 1) AS est_1rm
         FROM sets WHERE exercise = :e GROUP BY date ORDER BY date""", {"e": exercise}) if exercise else []
     bodyweight = bool(progress) and all(p["heaviest"] == 0 for p in progress)
+    # Logged without reps or weight (bouldering, a run): there's nothing to plot but the days
+    uncounted = bodyweight and all(p["most_reps"] is None for p in progress)
     return dict(
         tiles=tiles, weekly=weekly, weekly_chart=columns(weekly, ("workouts",)),
         volume=volume, volume_chart=columns([(short_date(v["date"]), [v["volume"]]) for v in volume], ("volume",), " kg"),
-        exercises=exercises, exercise=exercise, progress=progress, bodyweight=bodyweight,
-        progress_chart=line([(p["date"], p["most_reps"] if bodyweight else p["heaviest"]) for p in progress],
+        exercises=exercises, exercise=exercise, progress=progress, bodyweight=bodyweight, uncounted=uncounted,
+        progress_chart=line([(p["date"], (p["most_reps"] or 0) if bodyweight else p["heaviest"]) for p in progress],
                             " reps" if bodyweight else " kg"),
         records=await rows(wo, "SELECT * FROM records"),
     )
 
 
+def describe_sets(entries):
+    """[(8, 60), (8, 60), (6, 60)] -> '8, 8, 6 × 60 kg'; with different weights, each set's own."""
+    kg = lambda w: f"{plain(w)} kg" if w else "bodyweight"
+    if len({w for _, w in entries}) == 1:
+        return ", ".join(str(r) for r, _ in entries) + f" × {kg(entries[0][1])}"
+    return ", ".join(f"{r} × {kg(w)}" for r, w in entries)
+
+
 async def workouts_log(request, datasette):
-    form = await request.post_vars()
-    day = valid_date(form.get("date")) or date.today().isoformat()
-    exercise = (form.get("exercise") or "").strip()
-    reps, weight = (form.get("reps") or "").strip(), (form.get("weight") or "").strip() or "0"
+    """Logs one exercise: every set row of the form at once (reps + weight each)."""
+    form = parse_qs((await request.post_body()).decode(), keep_blank_values=True)
+    get = lambda key: (form.get(key) or [""])[0].strip()
+    day = valid_date(get("date")) or date.today().isoformat()
+    exercise, notes = get("exercise"), get("notes")
+    pairs = [(r.strip(), w.strip()) for r, w in zip(form.get("reps", []), form.get("weight", []))]
     try:
-        reps_n, weight_n = int(reps), float(weight)
-        if not exercise or reps_n < 1 or weight_n < 0:
+        # Only the exercise is needed; empty reps = done without counting ("Bouldering"), empty weight = bodyweight
+        parsed = [(int(r) if r else None, float(w) if w else 0.0) for r, w in pairs]
+        if not exercise or any((r is not None and r < 1) or w < 0 for r, w in parsed):
             raise ValueError
     except ValueError:
-        return back("/-/workouts", date=day, exercise=exercise, reps=reps, weight=weight,
-                    error="A set needs an exercise, reps (a whole number above 0) and a weight of 0 or more.")
+        return back("/workouts", date=day, exercise=exercise, notes=notes,
+                    reps=",".join(r for r, _ in pairs), weight=",".join(w for _, w in pairs),
+                    error="It needs an exercise. Reps (whole numbers above 0) and weights (0 or more) are optional.")
+    # Rows with reps are the sets; a row left without reps (a spare one from "+ Add set") is ignored.
+    # No reps anywhere = one entry that marks it done, with the first weight given.
+    entries = [(r, w) for r, w in parsed if r is not None] or [(None, next((w for _, w in parsed if w), 0.0))]
     wo = datasette.get_database("workouts")
-    await wo.execute_write("INSERT INTO sets (date, exercise, reps, weight) VALUES (?, ?, ?, ?)",
-                           [day, exercise, reps_n, weight_n])
+    # The notes go on the first set, so they show once
+    await wo.execute_write_fn(lambda conn: conn.executemany(
+        "INSERT INTO sets (date, exercise, reps, weight, notes) VALUES (?, ?, ?, ?, ?)",
+        [(day, exercise, r, w, notes if i == 0 else "") for i, (r, w) in enumerate(entries)]))
     s = await one(wo, """SELECT exercise, (SELECT count(*) FROM sets t WHERE t.date = s.date AND t.exercise = s.exercise) AS n
                          FROM sets s ORDER BY id DESC LIMIT 1""")
-    return back("/-/workouts", date=day, exercise=s["exercise"], reps=reps_n, weight=plain(weight_n),
-                msg=f"Logged {s['exercise']} set {s['n']}: {reps_n} × "
-                    + (f"{plain(weight_n)} kg." if weight_n else "bodyweight."))
+    reps_n, weight_n = entries[0]
+    if reps_n is None:
+        msg = f"Logged {s['exercise']}" + (f" ({plain(weight_n)} kg)." if weight_n else ".")
+    elif len(entries) == 1:
+        msg = f"Logged {s['exercise']} set {s['n']}: {describe_sets(entries)}."
+    else:
+        msg = f"Logged {s['exercise']} sets {s['n'] - len(entries) + 1}–{s['n']}: {describe_sets(entries)}."
+    return back("/workouts", date=day, msg=msg)
+
+
+async def workouts_log_plan(request, datasette):
+    """Logs every exercise in a plan on one day, skipping the ones already logged there."""
+    form = await request.post_vars()
+    day = valid_date(form.get("date")) or date.today().isoformat()
+    wo = datasette.get_database("workouts")
+    plan = next((p for p in await all_plans(wo) if str(p["id"]) == form.get("plan")), None)
+    if not plan:
+        return back("/workouts", date=day, error="Pick a plan to log.")
+    already = {r["exercise"].lower() for r in await rows(wo, "SELECT DISTINCT exercise FROM sets WHERE date = :d", {"d": day})}
+    last_weight = {r["exercise"].lower(): r["weight"] for r in await rows(wo, """
+        SELECT s.exercise, s.weight FROM sets s
+        JOIN (SELECT exercise, max(id) AS id FROM sets GROUP BY exercise) m ON m.id = s.id""")}
+    # A plan that's just a name ("Bouldering") goes in as one entry under that name
+    items = plan["exercises"] or [{"exercise": plan["name"], "sets": None, "reps": "", "weight": None}]
+    entries, logged, skipped = [], [], []
+    for e in items:
+        name = e["exercise"]
+        if name.lower() in already:
+            skipped.append(name)
+            continue
+        first = re.match(r"\d+", e["reps"] or "")
+        reps = (int(first.group()) or None) if first else None
+        weight = e["weight"] if e["weight"] is not None else last_weight.get(name.lower(), 0)
+        # Planned sets need reps to count as sets; without reps the exercise is marked done once
+        entries += [(day, name, reps, weight)] * ((e["sets"] or 1) if reps else 1)
+        logged.append(name)
+    if entries:
+        await wo.execute_write_fn(lambda conn: conn.executemany(
+            "INSERT INTO sets (date, exercise, reps, weight) VALUES (?, ?, ?, ?)", entries))
+    counted = sum(r[2] is not None for r in entries)
+    if not logged:
+        msg = f"Everything in {plan['name']} is already logged on {nice_date(day)}."
+    elif not plan["exercises"]:
+        msg = f"Logged {plan['name']}."
+    else:
+        msg = (f"Logged {len(logged)} exercise{'s' if len(logged) != 1 else ''} from {plan['name']}"
+               + (f" ({counted} set{'s' if counted != 1 else ''})" if counted else "") + ".")
+    if skipped and logged:
+        msg += f" Skipped what was already logged: {', '.join(skipped)}."
+    return back("/workouts", date=day, msg=msg)
 
 
 async def workouts_delete(request, datasette):
@@ -976,7 +1256,7 @@ async def workouts_delete(request, datasette):
     s = await one(wo, "SELECT id, date, exercise FROM sets WHERE id = :id", {"id": form.get("id")})
     if s:
         await wo.execute_write("DELETE FROM sets WHERE id = ?", [s["id"]])
-    return back("/-/workouts", date=s.get("date"), msg=f"Deleted a {s['exercise']} set." if s else None)
+    return back("/workouts", date=s.get("date"), msg=f"Deleted a {s['exercise']} entry." if s else None)
 
 
 # --- Finance ----------------------------------------------------------------------
@@ -1073,12 +1353,11 @@ async def finance(request, datasette):
     ctx = dict(page="finance", view=view, today=today, lines=lines, categories=await category_names(fi))
     if view == "log":
         day = valid_date(request.args.get("date")) or today
-        last = await one(fi, "SELECT category FROM expenses ORDER BY id DESC LIMIT 1")
         ctx.update(
             day=day, month=await month_summary(fi, day[:7], lines), **await day_summary(fi, day, lines),
             expenses=await rows(fi, "SELECT id, category, amount, notes FROM expenses WHERE date = :d ORDER BY id", {"d": day}),
-            prefill={"category": request.args.get("category", last.get("category", "")),
-                     "amount": request.args.get("amount", ""), "notes": request.args.get("notes", "")},
+            # The form starts empty; only a failed add (or a link) fills it in
+            prefill={k: request.args.get(k, "") for k in ("category", "amount", "notes")},
             prev_day=(date.fromisoformat(day) - timedelta(days=1)).isoformat(),
             next_day=(date.fromisoformat(day) + timedelta(days=1)).isoformat() if day < date.today().isoformat() else None,
         )
@@ -1153,23 +1432,15 @@ async def category_save(request, datasette):
         await fi.execute_write_fn(write)
     except Exception as e:
         result = {"error": f"Couldn't save: {e}"}
-    return back("/-/finance", view="settings", **result)
+    return back("/finance", view="settings", **result)
 
 
 async def finance_month(fi, month, lines):
     start, end = month_range(month)
-    days = []
-    for e in await rows(fi, """SELECT id, date, category, amount, notes FROM expenses
-                               WHERE date >= :start AND date < :end ORDER BY date DESC, id DESC""",
-                        {"start": start, "end": end}):
-        if not days or days[-1]["date"] != e["date"]:
-            days.append({"date": e["date"], "expenses": [], "total": 0})
-        days[-1]["expenses"].append(e)
-        days[-1]["total"] = round(days[-1]["total"] + e["amount"], 2)
     first = (await one(fi, "SELECT min(date) AS d FROM expenses")).get("d")
     record = next((r for r in await month_records(fi) if r["month"] == month), None)
     return dict(
-        month=month, summary=await month_summary(fi, month, lines), days=days, record=record,
+        month=month, summary=await month_summary(fi, month, lines), record=record,
         by_category=against_budget(lines["monthly"], await spending(fi, start, end)),
         prev_month=add_months(month, -1) if first and first[:7] < month else None,
         next_month=add_months(month, 1) if month < date.today().isoformat()[:7] else None,
@@ -1359,7 +1630,7 @@ async def daily_categories_save(request, datasette):
         conn.executemany("INSERT OR IGNORE INTO daily_chart_categories (category) VALUES (?)", [(c,) for c in chosen])
 
     await datasette.get_database("finance").execute_write_fn(write)
-    return back("/-/finance", view="stats", month=month,
+    return back("/finance", view="stats", month=month,
                 msg=f"Spent per day now adds up {', '.join(chosen)}." if chosen
                 else "Spent per day adds up the daily budget's categories again.")
 
@@ -1961,7 +2232,7 @@ async def ibkr_settings_save(request, datasette):
     wise_token = (form.get("wise_token") or "").strip()
     fi = datasette.get_database("finance")
     if query and not query.isdigit():
-        return back("/-/finance", view="investments", error="The Query ID is the number next to the query in IBKR's Flex Queries list.")
+        return back("/finance", view="investments", error="The Query ID is the number next to the query in IBKR's Flex Queries list.")
 
     def write(conn):
         if token:  # an empty field keeps the saved token
@@ -1973,7 +2244,7 @@ async def ibkr_settings_save(request, datasette):
 
     await fi.execute_write_fn(write)
     _refresh.pop("at", None)  # fetch again when the page opens, however recent the last time was
-    return back("/-/finance", view="investments", msg="Saved. The page fetches from IBKR and Wise now.")
+    return back("/finance", view="investments", msg="Saved. The page fetches from IBKR and Wise now.")
 
 
 # --- Wise: what the money that arrived at IBKR cost in ringgit, from Wise's statements --
@@ -2271,13 +2542,13 @@ async def expense_add(request, datasette):
         if not category or value <= 0:
             raise ValueError
     except ValueError:
-        return back("/-/finance", date=day, category=category, amount=amount, notes=notes,
+        return back("/finance", date=day, category=category, amount=amount, notes=notes,
                     error="An expense needs an amount above 0 and a category.")
     fi = datasette.get_database("finance")
     await fi.execute_write("INSERT INTO expenses (date, category, amount, notes) VALUES (?, ?, ?, ?)",
                            [day, category, value, notes])
     category = (await one(fi, "SELECT name FROM categories WHERE name = :c", {"c": category})).get("name", category)
-    return back("/-/finance", date=day, category=category,
+    return back("/finance", date=day,
                 msg=f"Added {money(value)} for {category}" + (f" ({notes})." if notes else "."))
 
 
@@ -2298,7 +2569,7 @@ async def balances_save(request, datasette):
             if not account:
                 raise ValueError
         except ValueError:
-            return back("/-/finance", view="savings", error=f"{account or 'A new account'} needs a name and a balance.")
+            return back("/finance", view="savings", error=f"{account or 'A new account'} needs a name and a balance.")
         last = latest.get(account.lower())
         if last and last["balance"] == value and last["as_of"][:7] == day[:7]:
             continue
@@ -2307,7 +2578,7 @@ async def balances_save(request, datasette):
         await fi.execute_write_fn(lambda conn: conn.executemany(
             "INSERT INTO balances (date, account, balance) VALUES (?, ?, ?)", new))
     total = (await one(fi, "SELECT round(sum(balance), 2) AS t FROM latest_balances")).get("t")
-    return back("/-/finance", view="savings",
+    return back("/finance", view="savings",
                 msg=f"Saved {len(new)} balance{'s' * (len(new) != 1)} for {nice_date(day)}. In your accounts: {money(total)}."
                 if new else "Nothing changed, nothing saved.")
 
@@ -2324,7 +2595,7 @@ async def month_setting(request, datasette):
         await fi.execute_write("INSERT OR REPLACE INTO month_settings (month, counted) VALUES (?, ?)", [month, int(choice)])
     msg = {"0": "is left out of averages", "1": "counts in averages", "auto": "counts in averages if you logged at least half its days"}
     back_to = form.get("view") if form.get("view") in ("budget", "stats") else "budget"
-    return back("/-/finance", view=back_to, month=month, msg=f"{month_name(month)} {msg[choice]}.")
+    return back("/finance", view=back_to, month=month, msg=f"{month_name(month)} {msg[choice]}.")
 
 
 async def investments_live(request, datasette):
@@ -2345,7 +2616,7 @@ async def finance_delete(request, datasette):
     if found:
         await fi.execute_write(f"DELETE FROM {table} WHERE id = ?", [found["id"]])
     view = form.get("view") if form.get("view") in ("budget", "savings", "investments", "stats") else None
-    return back("/-/finance", view=view, month=form.get("month") if view else None,
+    return back("/finance", view=view, month=form.get("month") if view else None,
                 date=found.get("date") if not view else None,
                 msg=f"Deleted the {FINANCE_TABLES[table]}." if found else None)
 
@@ -2364,10 +2635,10 @@ async def budget_save(request, datasette):
                 if not category or value < 0:
                     raise ValueError
             except ValueError:
-                return back("/-/finance", view="budget", month=month,
+                return back("/finance", view="budget", month=month,
                             error=f"Every {period} budget line needs a category and an amount of 0 or more.")
             if (period, category.lower()) in seen:
-                return back("/-/finance", view="budget", month=month, error=f"{category} is in the {period} budget twice.")
+                return back("/finance", view="budget", month=month, error=f"{category} is in the {period} budget twice.")
             seen.add((period, category.lower()))
             lines.append((period, len(lines), category, value))
 
@@ -2377,13 +2648,13 @@ async def budget_save(request, datasette):
 
     await datasette.get_database("finance").execute_write_fn(write)
     total = {p: sum(v for period, _, _, v in lines if period == p) for p in ("daily", "monthly")}
-    return back("/-/finance", view="budget", month=month,
+    return back("/finance", view="budget", month=month,
                 msg=f"Saved your budget: {money(total['daily'])} a day and {money(total['monthly'])} a month.")
 
 
-# --- Quotes and knowledge bits: short notes with tags ------------------------------
+# --- Quotes and thoughts: short notes with tags -------------------------------------
 
-# Two databases built the same way (schema/quotes.sql, schema/knowledge.sql): the notes,
+# Two databases built the same way (schema/quotes.sql, schema/thoughts.sql): the notes,
 # the tags, and a table linking them. One page each, from the same code and template.
 NOTEBOOKS = {
     "quotes": dict(
@@ -2393,12 +2664,12 @@ NOTEBOOKS = {
                 dict(name="author", label="Who said it", placeholder="a person or a character"),
                 dict(name="source", label="From", placeholder="a book, a film, a show"),
                 dict(name="notes", label="Notes", kind="textarea", rows=2)]),
-    "knowledge": dict(
-        name="knowledge", title="Knowledge", one="bit", many="bits", table="bits", links="bit_tags", key="bit_id",
+    "thoughts": dict(
+        name="thoughts", title="Thoughts", one="thought", many="thoughts", table="thoughts", links="thought_tags", key="thought_id",
         one_tag=False,
         fields=[dict(name="title", label="Title", placeholder="optional"),
-                dict(name="text", label="What you learnt", kind="textarea", rows=5, required=True),
-                dict(name="source", label="Source", placeholder="a link, a book, a person")]),
+                dict(name="text", label="Thought", kind="textarea", rows=5, required=True),
+                dict(name="source", label="Source", placeholder="optional: a link, a book, a person")]),
 }
 
 
@@ -2424,10 +2695,11 @@ async def entries_with_tags(db, book):
 
 
 async def notebook(request, datasette):
-    book = NOTEBOOKS[request.url_vars["book"]]
+    book = NOTEBOOKS[request.url_vars["book"].lower()]
     db = datasette.get_database(book["name"])
     entries, tags = await entries_with_tags(db, book), await tag_counts(db, book)
-    view = request.args.get("view") if request.args.get("view") in ("add", "tags") else "all"
+    view = {"settings": "tags"}.get(request.args.get("view"), request.args.get("view"))  # the Settings tab holds the tags
+    view = view if view in ("add", "tags") else "all"
     ctx = dict(page=book["name"], book=book, view=view, tags=tags, total=len(entries))
     if book["name"] == "quotes":
         ctx["zen"] = await zenquotes_percent(datasette)
@@ -2445,7 +2717,7 @@ async def notebook(request, datasette):
 async def notebook_save(request, datasette):
     """Add a note, or change one (id given), with its tags: the ticked ones and any new ones.
     Where a note has one tag (quotes), a new tag typed in wins over the one picked."""
-    book = NOTEBOOKS[request.url_vars["book"]]
+    book = NOTEBOOKS[request.url_vars["book"].lower()]
     form = parse_qs((await request.post_body()).decode(), keep_blank_values=True)
     values = {f["name"]: (form.get(f["name"]) or [""])[0].strip() for f in book["fields"]}
     picked = [*form.get("tag", []), *(form.get("new_tags") or [""])[0].split(",")]
@@ -2454,7 +2726,7 @@ async def notebook_save(request, datasette):
         tags = tags[-1:]
     entry_id = (form.get("id") or [""])[0]
     if not values["text"]:
-        return back(f"/-/{book['name']}", view="add", error=f"A {book['one']} needs its text.")
+        return back(f"/{book['name']}", view="add", error=f"A {book['one']} needs its text.")
     columns = list(values)
 
     def write(conn):
@@ -2473,26 +2745,26 @@ async def notebook_save(request, datasette):
         return saved
 
     if not await datasette.get_database(book["name"]).execute_write_fn(write):
-        return back(f"/-/{book['name']}", error=f"That {book['one']} isn't there any more.")
+        return back(f"/{book['name']}", error=f"That {book['one']} isn't there any more.")
     what = "Saved the" if entry_id else "Added a"
-    return back(f"/-/{book['name']}", msg=f"{what} {book['one']}" + (f", tagged {', '.join(tags)}." if tags else "."))
+    return back(f"/{book['name']}", msg=f"{what} {book['one']}" + (f", tagged {', '.join(tags)}." if tags else "."))
 
 
 async def notebook_delete(request, datasette):
-    book = NOTEBOOKS[request.url_vars["book"]]
+    book = NOTEBOOKS[request.url_vars["book"].lower()]
     form = await request.post_vars()
     await datasette.get_database(book["name"]).execute_write(f"DELETE FROM {book['table']} WHERE id = ?", [form.get("id")])
-    return back(f"/-/{book['name']}", msg=f"Deleted the {book['one']}.")
+    return back(f"/{book['name']}", msg=f"Deleted the {book['one']}.")
 
 
 async def notebook_tags(request, datasette):
     """Make a tag, rename one (into an existing tag: the two become one) or delete one"""
-    book = NOTEBOOKS[request.url_vars["book"]]
+    book = NOTEBOOKS[request.url_vars["book"].lower()]
     form = await request.post_vars()
     action, old, new = form.get("action"), form.get("tag") or "", clean_tag(form.get("to") or "")
     db = datasette.get_database(book["name"])
     if action in ("create", "rename") and not new:
-        return back(f"/-/{book['name']}", view="tags", error="A tag needs a name.")
+        return back(f"/{book['name']}", view="settings", error="A tag needs a name.")
 
     def write(conn):
         if action == "create":
@@ -2510,7 +2782,7 @@ async def notebook_tags(request, datasette):
     await db.execute_write_fn(write)
     msg = {"create": f"Made the tag {new}.", "delete": f"Deleted the tag {old}; its {book['many']} stay.",
            "rename": f"Renamed {old} to {new}."}.get(action, "")
-    return back(f"/-/{book['name']}", view="tags", msg=msg)
+    return back(f"/{book['name']}", view="settings", msg=msg)
 
 
 # The quote at the top of Home mixes your own quotes with ZenQuotes' free "quote of the day"
@@ -2608,11 +2880,11 @@ async def zenquotes_setting(request, datasette):
     form = await request.post_vars()
     percent = form.get("percent", "").strip()
     if not percent.isdigit():
-        return back("/-/quotes", error="ZenQuotes' share must be a whole number from 0 to 100.")
+        return back("/quotes", error="ZenQuotes' share must be a whole number from 0 to 100.")
     percent = min(100, int(percent))
     await datasette.get_database("quotes").execute_write(
         "INSERT INTO settings (key, value) VALUES ('zenquotes_percent', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", [str(percent)])
-    return back("/-/quotes", msg=("Home's quote of the day now comes from your own quotes only." if percent == 0
+    return back("/quotes", msg=("Home's quote of the day now comes from your own quotes only." if percent == 0
                                   else f"ZenQuotes will be Home's quote on {percent}% of days."))
 
 
@@ -2621,9 +2893,9 @@ async def zenquote_add(request, datasette):
     db = datasette.get_database("quotes")
     found = await zenquote_today()
     if not found:
-        return back("/-/quotes", error="Couldn't reach ZenQuotes. Try again in a few minutes.")
+        return back("/quotes", error="Couldn't reach ZenQuotes. Try again in a few minutes.")
     if await one(db, "SELECT id FROM quotes WHERE lower(trim(text)) = lower(trim(?))", [found["text"]]):
-        return back("/-/quotes", msg="Today's ZenQuote is already in your quotes.")
+        return back("/quotes", msg="Today's ZenQuote is already in your quotes.")
     tag = await guess_tag(db, found["text"], found["author"])
 
     def write(conn):
@@ -2633,7 +2905,7 @@ async def zenquote_add(request, datasette):
             conn.execute("INSERT INTO quote_tags (quote_id, tag) VALUES (?, ?)", [cur.lastrowid, tag])
 
     await db.execute_write_fn(write)
-    return back("/-/quotes", msg=f"Added \u201c{found['text'][:60]}{'…' if len(found['text']) > 60 else ''}\u201d by {found['author']}"
+    return back("/quotes", msg=f"Added \u201c{found['text'][:60]}{'…' if len(found['text']) > 60 else ''}\u201d by {found['author']}"
                                  + (f", tagged {tag}." if tag else "."))
 
 
@@ -2682,9 +2954,12 @@ async def uni(request, datasette):
     courses = await rows(db, "SELECT * FROM course_progress")
     kinds = await rows(db, "SELECT * FROM kinds ORDER BY position, id")
     priorities = await rows(db, "SELECT * FROM priorities ORDER BY level")
-    view = request.args.get("view") if request.args.get("view") in ("courses", "add") else "tasks"
+    view = {"settings": "courses"}.get(request.args.get("view"), request.args.get("view"))  # the Settings tab holds the courses
+    view = view if view in ("courses", "add") + (("announcements",) if "elearn" in FEATURES else ()) else "tasks"
     tasks = await rows(db, "SELECT * FROM task_list")
     ctx = dict(page="work", week=await semester_week(db), view=view, courses=courses, kinds=kinds, priorities=priorities, n_tasks=len(tasks))
+    if view == "announcements":
+        ctx.update(await announcements_context(datasette, request))
     editing = await one(db, "SELECT * FROM tasks WHERE id = ?", [request.args.get("edit", "")]) if request.args.get("edit", "").isdigit() else {}
     if editing:
         ctx.update(view="add", task=editing)
@@ -2721,13 +2996,13 @@ async def uni_save(request, datasette):
     form = {k: v[0].strip() for k, v in parse_qs((await request.post_body()).decode(), keep_blank_values=True).items()}
     task_id = form.get("id", "")
     if not form.get("title"):
-        return back("/-/work", view="add", error="A task needs a title.")
+        return back("/work", view="add", error="A task needs a title.")
     due = form.get("due", "")
     try:
         if due:
             date.fromisoformat(due)
     except ValueError:
-        return back("/-/work", view="add", error="That deadline isn't a date.")
+        return back("/work", view="add", error="That deadline isn't a date.")
     values = dict(
         title=form["title"],
         course_id=int(form["course_id"]) if form.get("course_id", "").isdigit() else None,
@@ -2746,8 +3021,8 @@ async def uni_save(request, datasette):
         return 1
 
     if not await datasette.get_database("work").execute_write_fn(write):
-        return back("/-/work", error="That task isn't there any more.")
-    return back("/-/work", msg=("Saved " if task_id else "Added ") + f"{values['title']}.")
+        return back("/work", error="That task isn't there any more.")
+    return back("/work", msg=("Saved " if task_id else "Added ") + f"{values['title']}.")
 
 
 async def uni_delete(request, datasette):
@@ -2763,7 +3038,7 @@ async def uni_delete(request, datasette):
     else:
         await db.execute_write("DELETE FROM tasks WHERE id = ?", [task_id])
         msg = "Removed the task."
-    return back("/-/work", msg=msg, course=form.get("course"))
+    return back("/work", msg=msg, course=form.get("course"))
 
 
 async def uni_course(request, datasette):
@@ -2773,18 +3048,18 @@ async def uni_course(request, datasette):
     code, name, term = (form.get("code") or "").strip(), (form.get("name") or "").strip(), (form.get("term") or "").strip()
     active = 1 if form.get("active") else 0
     if action in ("create", "save") and not name:
-        return back("/-/work", view="courses", error="A course needs a name.")
+        return back("/work", view="settings", error="A course needs a name.")
     db = datasette.get_database("work")
     if action == "save_all":
         ids = [k[5:] for k in form if k.startswith("name_") and k[5:].isdigit()]
         for i in ids:
             if not (form.get(f"name_{i}") or "").strip():
-                return back("/-/work", view="courses", error="A course needs a name.")
+                return back("/work", view="settings", error="A course needs a name.")
         for i in ids:
             await db.execute_write("UPDATE courses SET code = ?, name = ?, term = ?, active = ? WHERE id = ?",
                                    [(form.get(f"code_{i}") or "").strip(), form.get(f"name_{i}").strip(),
                                     (form.get(f"term_{i}") or "").strip(), 1 if form.get(f"active_{i}") else 0, int(i)])
-        return back("/-/work", view="courses", msg="Saved.")
+        return back("/work", view="settings", msg="Saved.")
     if action == "create":
         await db.execute_write("INSERT INTO courses (code, name, term) VALUES (?, ?, ?)", [code, name, term])
         msg = f"Added {name}."
@@ -2794,7 +3069,422 @@ async def uni_course(request, datasette):
     else:
         await db.execute_write("DELETE FROM courses WHERE id = ?", [cid])
         msg = "Deleted the course; its tasks stay."
-    return back("/-/work", view="courses", msg=msg)
+    return back("/work", view="settings", msg=msg)
+
+
+# --- Announcements: eLearn + Outlook merged into one list, sorted by how much each thing matters ----
+# Sources (scraped by ~/Shared/03_AREAS/_AUTOMATION/elearn/refresh.py into elearn.db): the eLearn stream, eLearn announcements and
+# gradebook, and the Outlook inbox. One thing said in several places shows once: an email that repeats an announcement marks it
+# "emailed", the same ad posted on several faculty pages shows once with "also on N pages", and your Work tasks are matched to it.
+# Importance (classify.py in that project): 1 act on it · 2 your week · 3 content · 4 events, internships · 5 noise.
+
+ANNOUNCEMENTS_PROJECT = Path.home() / "Shared/03_AREAS/_AUTOMATION/elearn"
+ANNOUNCEMENTS_PYTHON = Path.home() / ".local/share/venvs/elearn/bin/python"
+STREAM_KINDS = ("deadline", "grade", "announcement", "content", "enrolment", "other")
+# What a file or title is about, from the words in it: first match wins
+CONTENT_TOPICS = (
+    ("Recording", ("recording", "video", "panopto", "zoom", "youtube")),
+    ("Assessment", ("assignment", "submission", "quiz", "test", "exam", "report", "project", "case study", "proposal", "rubric", "marking")),
+    ("Practical", ("practical", "tutorial", "lab", "exercise", "worksheet", "workshop", "sample input", "source files", "dataset")),
+    ("Lecture", ("lecture", "slides", "handout", "chapter", "topic", "week ", "notes", "introduction", "overview")),
+)
+SYNC_LABELS = {"courses": "courses", "stream": "activity stream", "grades": "announcements + grades", "mail": "Outlook", "eLearn": "eLearn"}
+MODULE_CODE = re.compile(r"\b([A-Z]{3}\d{4})\b")
+_refresh = {}  # "proc": the refresh that is running
+
+
+def refresh_running():
+    proc = _refresh.get("proc")
+    return bool(proc) and proc.poll() is None
+
+
+def content_topic(title):
+    low = title.lower()
+    return next((name for name, words in CONTENT_TOPICS if any(w in low for w in words)), "File")
+
+
+def course_short(course):
+    """'2701-CSC3034 COMPUTATIONAL INTELLIGENCE' -> ('CSC3034', 'Computational Intelligence')"""
+    m = re.match(r"^(?:\d+_\d+-|\d+-)?([A-Z]{2,4}\d{3,4})\s+(.*)$", course or "")
+    return (m.group(1), m.group(2).title()) if m else ("", course or "")
+
+
+def title_words(text):
+    """The words that identify a message, without 'Re:' or the 'Faculty of ...:' / 'COURSE:' prefix mailers add"""
+    text = re.sub(r"^((re|fw|fwd):\s*)+", "", (text or "").lower())
+    if re.match(r"^(faculty of|school of|new announcement|\d{4}-[a-z]{3}\d{4})", text) and ": " in text:
+        text = text.split(": ", 1)[1]
+    return {w for w in re.findall(r"[a-z0-9]+", text) if len(w) > 2}
+
+
+def days_apart(a, b):
+    try:
+        return abs((date.fromisoformat(a[:10]) - date.fromisoformat(b[:10])).days)
+    except ValueError:
+        return 99
+
+
+async def announcement_feed(el):
+    """eLearn announcements + Outlook messages as one list (newest first). An email that repeats an announcement is folded into it
+    (`emailed`, `mail_link`); an ad posted on several pages is kept once (`also`)."""
+    feed = []
+    for a in await rows(el, "SELECT * FROM announcements"):
+        a.update(source="elearn", day=a["posted_at"][:10], mail_link="", emailed=False, also=[], tracked=False,
+                 link=f"https://elearn.sunway.edu.my/ultra/stream/announcement-detail?courseId={a['course_id']}&announcementId={a['id']}&mode=view")
+        feed.append(a)
+    codes = {course_short(a["course"])[0]: a["course"] for a in feed if a["module"]}
+    by_course = {}
+    for a in feed:
+        by_course.setdefault(a["course"], []).append(a)
+    try:
+        mails = await rows(el, "SELECT * FROM emails")
+    except Exception:  # the emails table appears with the first Outlook read
+        mails = []
+    for m in mails:
+        code = MODULE_CODE.search(m["subject"] + " " + m["preview"][:120])
+        course = codes.get(code.group(1)) if code else None
+        notice = m["addr"].startswith("no-reply_elearn")  # eLearn's own mail: the real title is in the preview
+        mine = by_course.get(course, feed) if course else feed
+        head = title_words(re.sub(r"^New announcement from [^:]{0,60}?(FET|\w+)\s", "", m["preview"][:160])) if notice else set()
+        subject = title_words(m["subject"])
+        best, score = None, 0
+        for a in mine:
+            if a["source"] != "elearn" or days_apart(a["posted_at"], m["received"]) > 5:
+                continue
+            aw = title_words(a["title"])
+            if not aw:
+                continue
+            s = len(aw & subject) / len(aw | subject) if subject else 0
+            if notice and len(aw) >= 2 and aw <= head | subject:
+                s = max(s, 0.9)
+            if s > score:
+                best, score = a, s
+        if best and score >= 0.6:
+            best["emailed"], best["mail_link"] = True, m["link"]
+            continue
+        course = course or m["sender"]
+        feed.append(dict(id=m["id"], course_id="", course=course, module=int(bool(code and codes.get(code.group(1)))), title=m["subject"], body=m["preview"],
+                         posted_at=m["received"], category=m["category"], importance=m["importance"], source="email", day=m["received"][:10],
+                         link="", mail_link=m["link"], emailed=False, also=[], tracked=False))
+    # the same ad on several pages: keep the newest
+    seen = {}
+    for a in sorted(feed, key=lambda i: i["posted_at"], reverse=True):
+        key = frozenset(title_words(a["title"]))
+        if len(key) < 3 or a["module"]:
+            continue
+        if key in seen:
+            seen[key]["also"].append(a)
+            a["hidden"] = True
+        else:
+            seen[key] = a
+    feed = [a for a in feed if not a.get("hidden")]
+    for a in feed:
+        a["code"], a["name"] = course_short(a["course"])
+        a["name"] = a["name"] if a["code"] else (a["course"] if a["source"] == "elearn" else a["course"].split(" - ")[0])
+        a["pages"] = len({x["course"] for x in a["also"]})
+    feed.sort(key=lambda i: i["posted_at"], reverse=True)
+    return feed
+
+
+async def announcement_tasks(datasette, due_items, feed, assessments, stream_due):
+    """Your open Work tasks, each with what eLearn/Outlook say about it (same course + the words in the title, or same due date).
+    Marks the matched items `tracked`, and sets `in_tasks` + `add` (a prefilled new task) on the eLearn deadlines."""
+    work = datasette.get_database("work")
+    task_rows = await rows(work, "SELECT * FROM task_list WHERE done_on IS NULL ORDER BY due IS NULL, due, priority")
+    course_ids = {r["name"].lower(): r["id"] for r in await rows(work, "SELECT id, name FROM courses")}
+    el_courses = {c for c in {a["course"] for a in feed if a["module"]} | {a["course"] for a in assessments} if course_short(c)[0]}
+
+    def words_of(text, drop=frozenset()):
+        return {w for w in re.findall(r"[a-z]+|\d+", (text or "").lower()) if w not in ("the", "and", "of", "for", "to", "a", "in", "on", "new") and w not in drop}
+
+    def same(task_words, text, drop):
+        words = words_of(text, drop)
+        nums = {w for w in task_words if w.isdigit()}
+        text_words = task_words - nums
+        return bool(text_words) and nums <= words and len(text_words & words) >= max(1, ceil(0.6 * len(text_words)))
+
+    for t in task_rows:
+        course = next((c for c in el_courses if t["course"] and t["course"].lower() in c.lower()), None)
+        t["elearn_course"], t["found"] = course, []
+        if not course:
+            continue
+        drop = words_of(course) | words_of(t["course"])
+        words = words_of(t["title"], drop)
+        for a in assessments:
+            if a["course"] == course and ((t["due"] and a["due"][:10] == t["due"]) or same(words, a["name"], drop)):
+                t["found"].append(dict(kind="assessment", text=a["short"], due=a["due"], score=a["score"], possible=a["possible"], id=a["id"]))
+        for a in feed:
+            if a["course"] == course and a["importance"] <= 2 and same(words, a["title"], drop):
+                a["tracked"] = True
+                t["found"].append(dict(kind=a["category"], text=a["title"], day=a["day"], via="email" if a["source"] == "email" else ("eLearn + email" if a["emailed"] else "eLearn")))
+        t["found"] = t["found"][:4]
+    for it in due_items + stream_due:
+        title = it.get("short") or it["title"]
+        drop = words_of(it["course"])
+        it["in_tasks"] = any(any(f.get("id") == it.get("id") and f["kind"] == "assessment" for f in t["found"])
+                             or (t["elearn_course"] == it["course"] and same(words_of(t["title"], drop | words_of(t["course"])), title, drop))
+                             for t in task_rows)
+        it["add"] = dict(title=re.sub(r"^Due:\s*", "", title), course_id=next((i for n, i in course_ids.items() if n in it["course"].lower()), ""),
+                         due=(it.get("due") or "")[:10], due_time=(it.get("due") or "")[11:16])
+    return task_rows
+
+
+async def announcements_context(datasette, request):
+    """Everything the Announcements tab of Work shows"""
+    el = datasette.get_database("elearn")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    recent = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d")
+    course = request.args.get("course", "")
+    only = " AND course = :course" if course else ""
+    params = {"course": course} if course else {}
+
+    def decorate(items):
+        for it in items:
+            it["code"], it["name"] = course_short(it["course"])
+            it["day"] = (it.get("posted_at") or "")[:10]
+        return items
+
+    def split(items):
+        return [i for i in items if i["day"] >= recent], [i for i in items if i["day"] < recent]
+
+    def capped(items, n=8):  # the faculty pages post a lot: the newest few, the rest folded
+        new, old = split(items)
+        return new[:n], new[n:] + old
+
+    feed = await announcement_feed(el)
+    courses, pages = {}, {}
+    for a in feed:
+        if a["source"] != "elearn":  # an email's "course" is its sender: not a chip
+            continue
+        group = courses if a["module"] else pages
+        group.setdefault(a["course"], dict(course=a["course"], n=0))["n"] += 1
+    settings = {r["course"]: r["auto"] for r in await rows(el, "SELECT course, auto FROM course_settings WHERE active = 0")}
+    off = set(settings)
+    # chips: the modules you starred (one you switched off by hand stays, faded, so it can come back); modules switched off because
+    # they aren't starred are not listed. The faculty / school / career pages are a group of their own.
+    for name in off:
+        if not settings[name]:
+            courses.setdefault(name, dict(course=name, n=0))
+    for name in set(courses) - off | {n for n in off if not settings[n]}:
+        courses[name]["code"], courses[name]["name"] = course_short(name)
+        courses[name]["off"] = name in off
+    for name, c in pages.items():
+        c["name"] = name
+    feed = [a for a in feed if a["course"] not in off and (not course or a["course"] == course)]
+    stream = decorate([i for i in await rows(el, "SELECT * FROM stream_items WHERE 1" + only + " ORDER BY posted_at DESC, id DESC", params) if i["course"] not in off])
+    by = {k: [it for it in stream if it["kind"] == k] for k in STREAM_KINDS}
+    for it in by["content"]:
+        it["topic"] = content_topic(it["title"].removeprefix("Added:").strip())
+    for g in by["grade"]:
+        try:
+            got, out = (float(x) for x in g["score"].split("/"))
+            g["pct"] = round(100 * got / out) if out else None
+        except ValueError:
+            g["pct"] = None
+        g["what"] = g["title"].removeprefix("Grade posted:").strip()
+    scored = [g for g in by["grade"] if g["pct"] is not None]
+
+    # Assessments: what's coming (any size), and big ones that passed without a result yet
+    assessments = decorate([dict(a, posted_at="", short=re.sub(r"^New Assignment", "Assignment", a["name"]))
+                            for a in await rows(el, "SELECT * FROM assessments WHERE 1" + only + " ORDER BY due", params) if a["course"] not in off])
+    upcoming = [a for a in assessments if a["due"] >= now]
+    for a in upcoming:
+        a["days_left"] = (date.fromisoformat(a["due"][:10]) - date.today()).days
+    waiting = [a for a in assessments if a["weight"] == "major" and a["due"] and a["due"] < now and a["score"] is None and a["due"][:10] >= recent]
+    stream_due = [d for d in by["deadline"] if d["due"] >= now and not any(a["due"] == d["due"] and a["course"] == d["course"] for a in upcoming)]
+    tasks = await announcement_tasks(datasette, upcoming + waiting, feed, assessments, stream_due)
+
+    classes = split([a for a in feed if a["importance"] == 2])
+    week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
+    sync = []
+    for source in ("stream", "grades", "mail"):
+        row = await one(el, "SELECT * FROM sync_log WHERE source IN (?, 'eLearn') ORDER BY id DESC LIMIT 1", [source])
+        sync.append(dict(source=SYNC_LABELS[source], at=row.get("at", "") if row else "", error=row.get("error", "") if row else "", items=row.get("items", 0) if row else 0))
+    return dict(
+        an_by=by, an_course=course, an_sync=sync, an_running=refresh_running(), an_total=len(feed) + len(stream),
+        an_upcoming=upcoming, an_stream_due=stream_due, an_waiting=waiting, an_tasks=tasks,
+        an_important=split([a for a in feed if a["importance"] == 1]), an_classes=classes,
+        an_internships=capped([a for a in feed if a["category"] == "internship"]),
+        an_events=capped([a for a in feed if a["category"] in ("event", "opportunity", "general")]),
+        an_other=split([a for a in feed if a["importance"] in (3, 5) and a["category"] not in ("general", "event", "opportunity", "internship")]),
+        an_courses=sorted((c for c in courses.values() if "code" in c), key=lambda c: -c["n"]),
+        an_pages=sorted(pages.values(), key=lambda c: -c["n"]),
+        an_mail=dict(total=sum(a["source"] == "email" or a["emailed"] for a in feed), twins=sum(a["emailed"] for a in feed),
+                     only=sum(a["source"] == "email" for a in feed)),
+        an_avg=round(sum(g["pct"] for g in scored) / len(scored)) if scored else None,
+        an_week=dict(important=sum(a["posted_at"] >= week_ago for a in feed if a["importance"] == 1),
+                     classes=sum(a["posted_at"] >= week_ago for a in feed if a["importance"] == 2),
+                     content=sum(c["posted_at"] >= week_ago for c in by["content"])),
+        an_soon=sum(1 for a in upcoming if a["days_left"] <= 14) + len(stream_due))
+
+
+async def announcements_course(request, datasette):
+    """Switch a course on or off (double-click its chip): off = not read by Refresh, not shown"""
+    form = await request.post_vars()
+    name = form.get("course", "")
+    if name:
+        await datasette.get_database("elearn").execute_write(
+            "INSERT INTO course_settings (course, active) VALUES (?, 0) ON CONFLICT(course) DO UPDATE SET active = 1 - active", [name])
+    return Response.text("ok")
+
+
+async def announcements_status(request, datasette):
+    """Is a refresh running? (the page polls this and reloads itself once, when it is done)"""
+    return Response.json({"running": refresh_running()})
+
+
+async def announcements(request, datasette):
+    """The old eLearn page moved into Work"""
+    return back("/work", view="announcements", course=request.args.get("course"))
+
+
+async def announcements_refresh(request, datasette):
+    """Start refresh.py in the background (about a minute: eLearn stream, announcements + grades, Outlook); the page reloads when done"""
+    if request.method != "POST":
+        return Response.text("POST only", status=405)
+    if refresh_running():
+        return back("/work", view="announcements", msg="Already refreshing.")
+    if not ANNOUNCEMENTS_PYTHON.exists():
+        return back("/work", view="announcements", error=f"The scraper isn't set up ({ANNOUNCEMENTS_PYTHON} is missing); see {ANNOUNCEMENTS_PROJECT}/README.md.")
+    _refresh["proc"] = subprocess.Popen([str(ANNOUNCEMENTS_PYTHON), "-I", str(ANNOUNCEMENTS_PROJECT / "refresh.py")], cwd=ANNOUNCEMENTS_PROJECT,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    return back("/work", view="announcements", msg="Refreshing eLearn and Outlook…")
+
+
+# --- Settings page, unlocking and locking -------------------------------------------------
+
+def file_size(n):
+    for unit in ("bytes", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "bytes" else f"{n:.1f} {unit}"
+        n /= 1024
+
+
+async def settings_page(request, datasette):
+    s = settings()
+    pages = [dict(key=k, default=p["name"], name=s["names"].get(k, ""), shown=k not in s["hidden"], locked=k in s["locked"])
+             for k, p in PAGES.items() if page_installed(k)]
+    names = page_names(s)
+    widgets = [dict(key=k, name=w["name"], page=names[w["page"]] if w["page"] else "", on=k not in s["widgets_off"],
+                    hidden=bool(w["page"]) and w["page"] in s["hidden"])
+               for k, w in WIDGETS.items() if w["page"] is None or w["page"] in FEATURES]
+    locked = locked_pages(datasette, request.cookies, s)
+    raw = []  # every database Datasette has open, with the page it belongs to
+    for name, db in datasette.databases.items():
+        if name.startswith("_"):
+            continue
+        owner = page_of(f"/{db.route}")
+        raw.append(dict(name=name, route=db.route, tables=len(await db.table_names()), views=len(await db.view_names()),
+                        size=file_size(Path(db.path).stat().st_size) if db.path else "",
+                        page=names[owner] if owner else "", locked=owner in locked))
+    return await render(datasette, request, "app_settings.html", page="settings", pages=pages, widgets=widgets, raw=raw,
+                        has_password=bool(s["password"]), minutes=s["unlock_minutes"])
+
+
+async def settings_pages_save(request, datasette):
+    """Each page's name, whether it's in the menu and whether it's locked. Turning a lock off needs the password."""
+    if request.method != "POST":
+        return back("/settings")
+    form = parse_qs((await request.post_body()).decode(), keep_blank_values=True)
+    get = lambda key: (form.get(key) or [""])[0].strip()
+    s = settings()
+    keys = [k for k in PAGES if page_installed(k)]  # pages that aren't installed keep what they had
+    hidden = [k for k in keys if k != "home" and not get(f"show_{k}")]
+    locked = [k for k in keys if k != "home" and get(f"lock_{k}")]
+    if locked and not s["password"]:
+        return back("/settings", error="Set a password first (under Password), then lock pages.")
+    if any(k in keys and k not in locked for k in s["locked"]) and not password_ok(get("password")):
+        await asyncio.sleep(0.5)  # a pause, so guessing is slow
+        return back("/settings", error="Turning a lock off needs the password.")
+    names = {k: get(f"name_{k}")[:40] for k in keys}
+    s["names"] = {**{k: v for k, v in s["names"].items() if k not in keys},
+                  **{k: v for k, v in names.items() if v and v != PAGES[k]["name"]}}
+    s["hidden"] = [k for k in s["hidden"] if k not in keys] + hidden
+    s["locked"] = [k for k in s["locked"] if k not in keys] + locked
+    save_settings(s)
+    return back("/settings", msg="Saved your pages.")
+
+
+async def settings_widgets_save(request, datasette):
+    """Which widgets Home shows (the switches save as soon as they're flipped)"""
+    if request.method != "POST":
+        return back("/settings")
+    form = parse_qs((await request.post_body()).decode(), keep_blank_values=True)
+    shown, on = set(form.get("present", [])) & set(WIDGETS), set(form.get("widget", []))
+    s = settings()
+    s["widgets_off"] = [k for k in s["widgets_off"] if k not in shown] + [k for k in WIDGETS if k in shown and k not in on]
+    save_settings(s)
+    return back("/settings", msg="Saved Home's widgets.")
+
+
+async def settings_password_save(request, datasette):
+    """Set the password, change it or how long an unlocked page stays open, or remove it (which unlocks everything)"""
+    if request.method != "POST":
+        return back("/settings")
+    form = await request.post_vars()
+    s = settings()
+    if s["password"] and not password_ok(form.get("current", "")):
+        await asyncio.sleep(0.5)
+        return back("/settings", error="The current password isn't right.")
+    if form.get("action") == "remove":
+        s.update(password="", locked=[])
+        save_settings(s)
+        response = back("/settings", msg="Removed the password. No page is locked now.")
+        set_open_cookie(datasette, response, None)
+        return response
+    new, again = form.get("new", ""), form.get("again", "")
+    if new or not s["password"]:
+        if not new:
+            return back("/settings", error="Type a password to set.")
+        if new != again:
+            return back("/settings", error="The two new passwords aren't the same.")
+        s["password"] = hash_password(new)
+    minutes = form.get("minutes", "").strip()
+    if minutes:
+        if not minutes.isdigit():
+            return back("/settings", error="Minutes is a whole number (0 = until the browser closes).")
+        s["unlock_minutes"] = int(minutes)
+    save_settings(s)
+    return back("/settings", msg="Saved the new password." if new else "Saved.")
+
+
+async def unlock(request, datasette):
+    """The password popup posts here (asking for JSON); without JavaScript it's a plain form. The
+    right password unlocks every locked page. GET (an old link): Home with the popup open."""
+    if request.method != "POST":
+        return back("/", unlock=safe_next(request.args.get("next")) or "/")
+    form = await request.post_vars()
+    target = safe_next(form.get("next"))
+    wants_json = "application/json" in request.headers.get("accept", "")
+    if not password_ok(form.get("password", "")):
+        await asyncio.sleep(0.5)  # a pause, so guessing is slow
+        error = "That's not the password."
+        return Response.json({"ok": False, "error": error}) if wants_json else back("/", unlock=target or "/", error=error)
+    response = Response.json({"ok": True, "next": target}) if wants_json else Response.redirect(target or "/")
+    set_open_cookie(datasette, response, open_until())
+    return response
+
+
+async def lock(request, datasette):
+    """Lock every locked page again; stay where you were unless that page is locked"""
+    if request.method != "POST":
+        return back("/")
+    target = safe_next((await request.post_vars()).get("next")) or "/"
+    if page_of(target.split("?")[0]) in settings()["locked"]:
+        target = "/"
+    response = Response.redirect(target)
+    set_open_cookie(datasette, response, None)
+    return response
+
+
+# The pages used to be at /-/<page>, HSK at /-/chinese and Thoughts at /-/knowledge
+OLD_PAGES = {"chinese": "/hsk", "knowledge": "/thoughts", "announcements": "/work/announcements", "elearn": "/work/announcements"}
+
+
+async def old_address(request, datasette):
+    """An old /-/... address (a bookmark, say): go to where that page is now"""
+    old, rest, query = request.url_vars["old"].lower(), request.url_vars.get("rest") or "", request.query_string
+    return Response.redirect(OLD_PAGES.get(old, f"/{old}") + rest + (f"?{query}" if query else ""))
 
 
 # --- Datasette's own pages: match the theme -------------------------------------
@@ -2810,52 +3500,65 @@ async def datasette_css(request, datasette):
 
 @hookimpl
 def register_routes():
-    books = "|".join(f for f in ("quotes", "knowledge") if f in FEATURES)
-    routes = [(r"^/$", home), (r"^/-/app/datasette\.css$", datasette_css)]
+    books = "|".join(f for f in ("quotes", "thoughts") if f in FEATURES)
+    routes = [(r"^/$", home), (r"^/-/app/datasette\.css$", datasette_css),
+              (r"^/settings$", settings_page), (r"^/settings/pages$", settings_pages_save),
+              (r"^/settings/widgets$", settings_widgets_save), (r"^/settings/password$", settings_password_save),
+              (r"^/unlock$", unlock), (r"^/lock$", lock)]
     for feature, paths in ROUTES.items():
         if feature in FEATURES:
             routes += paths
     if "quotes" in FEATURES:
-        routes += [(r"^/-/quotes/zenquotes$", zenquotes_setting), (r"^/-/quotes/zenquote-add$", zenquote_add)]
+        routes += [(r"^/quotes/zenquotes$", zenquotes_setting), (r"^/quotes/zenquote-add$", zenquote_add)]
     if books:
-        routes += [(rf"^/-/(?P<book>{books})$", notebook), (rf"^/-/(?P<book>{books})/save$", notebook_save),
-                   (rf"^/-/(?P<book>{books})/delete$", notebook_delete), (rf"^/-/(?P<book>{books})/tags$", notebook_tags)]
-    return routes
+        routes += [(rf"^/(?P<book>{books})$", notebook), (rf"^/(?P<book>{books})/save$", notebook_save),
+                   (rf"^/(?P<book>{books})/delete$", notebook_delete), (rf"^/(?P<book>{books})/tags$", notebook_tags)]
+    routes += [(r"^/-/(?P<old>chinese|workouts|finance|quotes|thoughts|knowledge|work|announcements|elearn|settings)(?P<rest>/.*)?$",
+                old_address)]
+    # Any case works: /HSK is /hsk
+    return [("(?i)" + regex, view) for regex, view in routes]
 
 
 ROUTES = {
     "chinese": [
-        (r"^/-/chinese$", chinese),
-        (r"^/-/chinese/move$", chinese_move),
-        (r"^/-/chinese/add$", chinese_add),
-        (r"^/-/chinese/settings$", chinese_settings),
+        (r"^/hsk$", chinese),
+        (r"^/hsk/move$", chinese_move),
+        (r"^/hsk/add$", chinese_add),
+        (r"^/hsk/settings$", chinese_settings),
     ],
     "workouts": [
-        (r"^/-/workouts$", workouts),
-        (r"^/-/workouts/log$", workouts_log),
-        (r"^/-/workouts/delete$", workouts_delete),
-        (r"^/-/workouts/plan/save$", plan_save),
-        (r"^/-/workouts/plan/delete$", plan_delete),
-        (r"^/-/workouts/schedule/week$", schedule_week),
-        (r"^/-/workouts/schedule/date$", schedule_date),
+        (r"^/workouts$", workouts),
+        (r"^/workouts/log$", workouts_log),
+        (r"^/workouts/log-plan$", workouts_log_plan),
+        (r"^/workouts/delete$", workouts_delete),
+        (r"^/workouts/plan/save$", plan_save),
+        (r"^/workouts/plan/delete$", plan_delete),
+        (r"^/workouts/schedule/week$", schedule_week),
+        (r"^/workouts/schedule/date$", schedule_date),
     ],
     "finance": [
-        (r"^/-/finance$", finance),
-        (r"^/-/finance/expense$", expense_add),
-        (r"^/-/finance/balances$", balances_save),
-        (r"^/-/finance/month$", month_setting),
-        (r"^/-/finance/daily-categories$", daily_categories_save),
-        (r"^/-/finance/investments/live$", investments_live),
-        (r"^/-/finance/refresh$", finance_refresh),
-        (r"^/-/finance/ibkr$", ibkr_settings_save),
-        (r"^/-/finance/delete$", finance_delete),
-        (r"^/-/finance/budget$", budget_save),
-        (r"^/-/finance/category$", category_save),
+        (r"^/finance$", finance),
+        (r"^/finance/expense$", expense_add),
+        (r"^/finance/balances$", balances_save),
+        (r"^/finance/month$", month_setting),
+        (r"^/finance/daily-categories$", daily_categories_save),
+        (r"^/finance/investments/live$", investments_live),
+        (r"^/finance/refresh$", finance_refresh),
+        (r"^/finance/ibkr$", ibkr_settings_save),
+        (r"^/finance/delete$", finance_delete),
+        (r"^/finance/budget$", budget_save),
+        (r"^/finance/category$", category_save),
     ],
     "work": [
-        (r"^/-/work$", uni),
-        (r"^/-/work/save$", uni_save),
-        (r"^/-/work/delete$", uni_delete),
-        (r"^/-/work/course$", uni_course),
+        (r"^/work$", uni),
+        (r"^/work/save$", uni_save),
+        (r"^/work/delete$", uni_delete),
+        (r"^/work/course$", uni_course),
+    ],
+    "elearn": [
+        (r"^/work/announcements$", announcements),
+        (r"^/work/announcements/refresh$", announcements_refresh),
+        (r"^/work/announcements/course$", announcements_course),
+        (r"^/work/announcements/status$", announcements_status),
     ],
 }

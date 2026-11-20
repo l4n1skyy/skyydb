@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""skyydb: my SQLite databases (Chinese vocabulary, workouts, finance, quotes, knowledge bits, work),
+"""skyydb: my SQLite databases (Chinese vocabulary, workouts, finance, quotes, thoughts, work),
 browsed with Datasette.
 
 Usage:
@@ -11,7 +11,7 @@ Usage:
                              responses CSV (expenses, savings, shares) or a budget TSV.
                              Rows already in the database are skipped.
   skyydb install [FEATURE ...]
-                             choose what's installed: chinese workouts finance work quotes knowledge
+                             choose what's installed: chinese workouts finance work elearn quotes thoughts
                              (or "all"; none given = all). Only those get a database, a page and a
                              spot on the dashboard. Run it again to change the choice; the data of a
                              feature you drop stays in its file, just hidden.
@@ -27,6 +27,7 @@ Everything lives in this repo's folder (the one above bin/); DB_DIR overrides it
 
 import csv
 import os
+import re
 import shutil
 import signal
 import sqlite3
@@ -39,8 +40,9 @@ from datetime import date, datetime
 from pathlib import Path
 
 DB_DIR = Path(os.environ.get("DB_DIR", Path(__file__).resolve().parent.parent))
-ALL_FEATURES = ("chinese", "workouts", "finance", "work", "quotes", "knowledge")
-ALIASES = {"workout": "workouts", "gym": "workouts", "quote": "quotes", "uni": "work", "university": "work", "school": "work"}
+ALL_FEATURES = ("chinese", "workouts", "finance", "work", "elearn", "quotes", "thoughts")
+ALIASES = {"sunway": "elearn", "workout": "workouts", "gym": "workouts", "quote": "quotes", "uni": "work", "university": "work", "school": "work",
+           "hsk": "chinese", "thought": "thoughts", "knowledge": "thoughts"}
 def label(f):
     return f
 FEATURES_FILE = DB_DIR / "features"
@@ -52,6 +54,7 @@ def installed():
         words = FEATURES_FILE.read_text().split()
     except OSError:
         return ALL_FEATURES
+    words = ["thoughts" if w == "knowledge" else w for w in words]  # Thoughts used to be called Knowledge
     return tuple(f for f in ALL_FEATURES if f in words)
 
 
@@ -110,12 +113,58 @@ def die(msg):
     sys.exit(1)
 
 
+def optional_reps(conn):
+    """Workout databases made before reps became optional: rebuild `sets` so reps can be
+    empty and there's a notes column. The schema file then recreates the views and triggers."""
+    old = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sets'").fetchone()
+    if not old or "notes" in old[0]:
+        return
+    schema = (DB_DIR / "schema" / "workouts.sql").read_text()
+    create = re.search(r"CREATE TABLE IF NOT EXISTS sets \(.*?\n\);", schema, re.S).group()
+    conn.executescript(f"""
+        BEGIN;
+        DROP VIEW IF EXISTS set_log; DROP VIEW IF EXISTS workouts; DROP VIEW IF EXISTS records;
+        ALTER TABLE sets RENAME TO sets_old;
+        {create}
+        INSERT INTO sets (id, date, exercise, reps, weight) SELECT id, date, exercise, reps, weight FROM sets_old;
+        DROP TABLE sets_old;
+        COMMIT;
+    """)
+
+
+def knowledge_to_thoughts():
+    """Knowledge became Thoughts (2026-11-20): knowledge.db -> thoughts.db, its table bits -> thoughts and
+    bit_tags (bit_id) -> thought_tags (thought_id). The views and triggers are remade by schema/thoughts.sql."""
+    old, new = DB_DIR / "knowledge.db", DB_DIR / "thoughts.db"
+    if not old.exists() or new.exists():
+        return
+    conn = sqlite3.connect(old)
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'bits'").fetchone():
+        conn.executescript("""
+            BEGIN;
+            DROP VIEW IF EXISTS bits_tagged; DROP VIEW IF EXISTS tag_counts;
+            DROP TRIGGER IF EXISTS bit_tags_new_tag; DROP TRIGGER IF EXISTS tags_rename;
+            DROP TRIGGER IF EXISTS tags_delete; DROP TRIGGER IF EXISTS bits_delete;
+            DROP INDEX IF EXISTS bit_tags_tag;
+            ALTER TABLE bits RENAME TO thoughts;
+            ALTER TABLE bit_tags RENAME TO thought_tags;
+            ALTER TABLE thought_tags RENAME COLUMN bit_id TO thought_id;
+            COMMIT;
+        """)
+    conn.close()
+    old.rename(new)
+
+
 def connect(name):
     if not DB_DIR.is_dir():
         die(f"{DB_DIR} doesn't exist (is the drive it lives on mounted?)")
     need(name)
+    if name == "thoughts":
+        knowledge_to_thoughts()
     conn = sqlite3.connect(DB_DIR / f"{name}.db")
     conn.row_factory = sqlite3.Row
+    if name == "workouts":
+        optional_reps(conn)
     # Create anything missing and rebuild views/triggers from schema/<name>.sql
     conn.executescript((DB_DIR / "schema" / f"{name}.sql").read_text())
     return conn
@@ -436,7 +485,7 @@ def status():
     for name in on:
         with connect(name) as conn:
             if name == "chinese":
-                print(f"Chinese: {list_counts(conn)}")
+                print(f"HSK: {list_counts(conn)}")
             elif name == "workouts":
                 row = conn.execute("SELECT count(DISTINCT date) AS workouts, count(*) AS sets, max(date) AS last FROM sets").fetchone()
                 print(f"Workouts: {row['workouts']} workouts, {row['sets']} sets, last on {row['last'] or '-'}")
@@ -446,10 +495,14 @@ def status():
                 budget = conn.execute("SELECT sum(amount) FROM budget WHERE period = 'monthly'").fetchone()[0]
                 print(f"Finance: RM{row['month']:,.2f} spent this month" + (f" of RM{budget:,.2f}" if budget else "")
                                 + f", last expense on {row['last'] or '-'}")
-            elif name in ("quotes", "knowledge"):
-                table = "quotes" if name == "quotes" else "bits"
+            elif name in ("quotes", "thoughts"):
+                table = name
                 n, tags = conn.execute(f"SELECT (SELECT count(*) FROM {table}), (SELECT count(*) FROM tags)").fetchone()
                 print(f"{name.capitalize()}: {n} {table}, {tags} tags")
+            elif name == "elearn":
+                n, soon, last = conn.execute("""SELECT count(*), count(*) FILTER (WHERE kind = 'deadline' AND due >= datetime('now', 'localtime')),
+                                                                 (SELECT max(at) FROM scrapes) FROM stream_items""").fetchone()
+                print(f"eLearn: {n} items, {soon} deadlines ahead, last synced {last or 'never'}")
             elif name == "work":
                 n, soon, over = conn.execute("""SELECT count(*), count(*) FILTER (WHERE days_left BETWEEN 0 AND 7),
                                                                  count(*) FILTER (WHERE days_left < 0) FROM task_list""").fetchone()

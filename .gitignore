@@ -6,3 +6,7 @@
 backups/
 __pycache__/
 features
+
+# Settings from the Settings page (page names, locks, the password hash)
+settings.json
+settings.json.tmp

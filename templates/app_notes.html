@@ -1,18 +1,15 @@
-{# Quotes and Knowledge: the same page for both (NOTEBOOKS in plugins/app.py says which
+{# Quotes and Thoughts: the same page for both (NOTEBOOKS in plugins/app.py says which
    fields each has). Tabs: every note (filter by a tag, search), add or edit one, tags. #}
 {% extends "app_base.html" %}
-{% block title %}{{ book.title }}{% endblock %}
+{% block title %}{{ names[book.name] }}{% endblock %}
 {% macro source(text) %}{% if text.startswith("http://") or text.startswith("https://") %}<a href="{{ text }}" target="_blank" rel="noopener">{{ text }}</a>{% else %}{{ text }}{% endif %}{% endmacro %}
 {% block main %}
 <div class="page-head">
-  <h1>{{ book.title }}</h1>
-  <nav class="tabs" aria-label="{{ book.title }}">
-    <div class="tab-group">
-      <a href="/-/{{ book.name }}"{% if view == "all" %} aria-current="page"{% endif %}>All <span class="count">{{ total }}</span></a>
-      <a href="?view=tags"{% if view == "tags" %} aria-current="page"{% endif %}>Tags <span class="count">{{ tags|length }}</span></a>
-    </div>
+  <h1>{{ names[book.name] }}</h1>
+  <nav class="tabs" aria-label="{{ names[book.name] }}">
     <div class="tab-group">
       <a href="?view=add{% if tag %}&amp;tag={{ tag|urlencode }}{% endif %}"{% if view == "add" %} aria-current="page"{% endif %}>+ Add a {{ book.one }}</a>
+      <a href="?view=settings"{% if view == "tags" %} aria-current="page"{% endif %}>Settings</a>
     </div>
   </nav>
 </div>
@@ -22,17 +19,17 @@
   <input type="search" id="note-q" placeholder="Search {{ book.many }}" autocomplete="off" aria-label="Search {{ book.many }}">
   <span class="spacer"></span>
   {% if book.name == "quotes" %}
-  <form class="zen-toggle" method="post" action="/-/quotes/zenquotes">
+  <form class="zen-toggle" method="post" action="/quotes/zenquotes">
     <label class="check" title="On how many days out of 100 Home's quote of the day comes from zenquotes.io (0 = never)">ZenQuotes on <input type="number" name="percent" min="0" max="100" step="5" value="{{ zen }}" aria-label="Percent of days"> % of days</label>
     <noscript><button class="btn small">Save</button></noscript>
   </form>
-  <form class="zen-add" method="post" action="/-/quotes/zenquote-add"><button class="btn small" title="Adds today's quote from zenquotes.io to your quotes, tagged the way yours are">+ Add today's ZenQuote</button></form>
+  <form class="zen-add" method="post" action="/quotes/zenquote-add"><button class="btn small" title="Adds today's quote from zenquotes.io to your quotes, tagged the way yours are">+ Add today's ZenQuote</button></form>
   {% endif %}
   <span class="muted" id="note-shown" data-one="{{ book.one }}" data-many="{{ book.many }}">{{ entries|length }} {{ book.one if entries|length == 1 else book.many }}</span>
 </div>
 {% if tags %}
 <nav class="chips tag-filter" aria-label="Show one tag">
-  <a class="chip" href="/-/{{ book.name }}"{% if not tag %} aria-current="true"{% endif %}>all</a>
+  <a class="chip" href="/{{ book.name }}"{% if not tag %} aria-current="true"{% endif %}>all</a>
   {% for t in tags if t.n %}<a class="chip" href="?tag={{ t.name|urlencode }}"{% if t.name|lower == tag %} aria-current="true"{% endif %}>{{ t.name }} <span class="n">{{ t.n }}</span></a>{% endfor %}
 </nav>
 {% endif %}
@@ -46,8 +43,8 @@
     {% if e.author or e.source %}<p class="attribution">— {{ e.author }}{% if e.author and e.source %}, {% endif %}{% if e.source %}<cite>{{ e.source }}</cite>{% endif %}</p>{% endif %}
     {% if e.notes %}<p class="notes">{{ e.notes }}</p>{% endif %}
     {% else %}
-    {% if e.title %}<h3 class="bit-title">{{ e.title }}</h3>{% endif %}
-    <p class="bit-text">{{ e.text }}</p>
+    {% if e.title %}<h3 class="note-title">{{ e.title }}</h3>{% endif %}
+    <p class="note-text">{{ e.text }}</p>
     {% if e.source %}<p class="attribution">{{ source(e.source) }}</p>{% endif %}
     {% endif %}
     {% if e.tags %}<div class="chips">{% for t in e.tags %}<a class="chip small" href="?tag={{ t|urlencode }}">{{ t }}</a>{% endfor %}</div>{% endif %}
@@ -59,7 +56,7 @@
 </p>
 
 {% elif view in ("add", "edit") %}
-<form class="panel form-grid note-form" method="post" action="/-/{{ book.name }}/save" autocomplete="off">
+<form class="panel form-grid note-form" method="post" action="/{{ book.name }}/save" autocomplete="off">
   <h2 class="wide">{{ "Edit the " ~ book.one if entry.id else "Add a " ~ book.one }}</h2>
   {% if entry.id %}<input type="hidden" name="id" value="{{ entry.id }}">{% endif %}
   {% for f in book.fields %}
@@ -84,11 +81,11 @@
   </fieldset>
   <div class="wide actions">
     <button class="btn primary">{{ "Save" if entry.id else "Add the " ~ book.one }}</button>
-    <a class="btn ghost" href="/-/{{ book.name }}">Cancel</a>
+    <a class="btn ghost" href="/{{ book.name }}">Cancel</a>
   </div>
 </form>
 {% if entry.id %}
-<form class="delete-note" method="post" action="/-/{{ book.name }}/delete" data-confirm="Delete this {{ book.one }}?">
+<form class="delete-note" method="post" action="/{{ book.name }}/delete" data-confirm="Delete this {{ book.one }}?">
   <input type="hidden" name="id" value="{{ entry.id }}">
   <button class="icon danger">Delete this {{ book.one }}</button>
   <span class="muted small-print">· added {{ entry.added|nice_date(true) }}</span>
@@ -101,13 +98,13 @@
   <table class="tag-table">
     <thead><tr><th>Tag</th><th class="n">{{ book.many|capitalize }}</th><th>Rename</th><th></th></tr></thead>
     <tbody>{% for t in tags %}<tr>
-      <td><a href="/-/{{ book.name }}?tag={{ t.name|urlencode }}">{{ t.name }}</a></td>
+      <td><a href="/{{ book.name }}?tag={{ t.name|urlencode }}">{{ t.name }}</a></td>
       <td class="n">{{ t.n }}</td>
-      <td><form class="inline-form" method="post" action="/-/{{ book.name }}/tags">
+      <td><form class="inline-form" method="post" action="/{{ book.name }}/tags">
         <input type="hidden" name="action" value="rename"><input type="hidden" name="tag" value="{{ t.name }}">
         <input name="to" value="{{ t.name }}" required aria-label="New name for {{ t.name }}"><button class="btn small">Rename</button>
       </form></td>
-      <td class="n"><form method="post" action="/-/{{ book.name }}/tags" data-confirm="Delete the tag {{ t.name }}? Its {{ book.many }} stay, without it.">
+      <td class="n"><form method="post" action="/{{ book.name }}/tags" data-confirm="Delete the tag {{ t.name }}? Its {{ book.many }} stay, without it.">
         <input type="hidden" name="action" value="delete"><input type="hidden" name="tag" value="{{ t.name }}">
         <button class="icon danger">delete</button>
       </form></td>
@@ -116,7 +113,7 @@
   <p class="muted small-print">Renaming a tag to one that already exists puts them together.</p>
   {% else %}<p class="empty">No tags yet.</p>{% endif %}
   <h2 class="settings-head">New tag</h2>
-  <form class="inline-form" method="post" action="/-/{{ book.name }}/tags">
+  <form class="inline-form" method="post" action="/{{ book.name }}/tags">
     <input type="hidden" name="action" value="create">
     <input name="to" required placeholder="its name" aria-label="New tag">
     <button class="btn small">Make it</button>

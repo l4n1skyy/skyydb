@@ -3,7 +3,7 @@
    colour variables (the same ones the app pages use); datasette.yaml loads it. Datasette's
    stylesheet has its colours written into the rules, so this overrides them rule by rule. */
 
-html { color-scheme: dark; }
+html { color-scheme: dark; scrollbar-gutter: stable; }  /* no sideways shift when a page has a scrollbar */
 body { background: var(--bg); color: var(--text); }
 ::selection { background: var(--surface0); }
 
