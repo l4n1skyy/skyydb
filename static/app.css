@@ -340,7 +340,7 @@ a.tile:hover { border-color: var(--axis); }
 .set-rows-head { font-size: 0.85rem; color: var(--muted); }
 .set-idx { color: var(--muted); font-size: 0.9rem; text-align: center; font-variant-numeric: tabular-nums; }
 .set-row .icon { justify-self: end; }
-#add-set { align-self: flex-start; }
+#add-set { align-self: flex-end; }
 .day-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 .day-head h2 { margin: 0; }
 .day-head h2 .muted { font-weight: 400; font-size: 0.9rem; margin-left: 6px; }
