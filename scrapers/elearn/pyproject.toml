@@ -1,0 +1,6 @@
+[project]
+name = "elearn"
+version = "0.1.0"
+description = "Log into Sunway eLearn and scrape the activity stream"
+requires-python = ">=3.11"
+dependencies = ["playwright"]

@@ -12,6 +12,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import re
 import secrets
 import subprocess
@@ -1108,12 +1109,12 @@ async def workouts(request, datasette):
 
 # --- Strava: every activity you've logged there --------------------------------------------
 #
-# Read by a scraper that signs in to strava.com as you (~/Shared/03_AREAS/_AUTOMATION/strava,
+# Read by a scraper that signs in to strava.com as you (scrapers/strava in this folder,
 # strava.py; its browser keeps you signed in). Workouts > Settings takes your profile address,
 # opens the sign-in window and starts syncs; the scraper writes the activities into workouts.db
 # (strava_activities) and how it went into its settings table (strava_synced, strava_said, strava_error).
 
-STRAVA_PROJECT = Path.home() / "Shared/03_AREAS/_AUTOMATION/strava"
+STRAVA_PROJECT = ROOT / "scrapers" / "strava"
 STRAVA_PYTHON = Path.home() / ".local/share/venvs/strava/bin/python"
 STRAVA_GAP = timedelta(hours=1)  # opening Stats syncs again only after this long
 RUN_SPORTS = ("Run", "TrailRun", "VirtualRun")
@@ -3376,6 +3377,9 @@ async def uni(request, datasette):
     ctx = dict(page="work", week=await semester_week(db), view=view, courses=courses, kinds=kinds, priorities=priorities, n_tasks=len(tasks))
     if view == "announcements":
         ctx.update(await announcements_context(datasette, request))
+    if view == "courses" and "elearn" in FEATURES:
+        creds = elearn_credentials()
+        ctx["elearn_login"] = dict(user=creds.get("ELEARN_USER", ""), saved=bool(creds.get("ELEARN_PASS")), ready=ANNOUNCEMENTS_PYTHON.exists())
     editing = await one(db, "SELECT * FROM tasks WHERE id = ?", [request.args.get("edit", "")]) if request.args.get("edit", "").isdigit() else {}
     if editing:
         ctx.update(view="add", task=editing)
@@ -3489,12 +3493,12 @@ async def uni_course(request, datasette):
 
 
 # --- Announcements: eLearn + Outlook merged into one list, sorted by how much each thing matters ----
-# Sources (scraped by ~/Shared/03_AREAS/_AUTOMATION/elearn/refresh.py into elearn.db): the eLearn stream, eLearn announcements and
+# Sources (scraped by scrapers/elearn/refresh.py into elearn.db): the eLearn stream, eLearn announcements and
 # gradebook, and the Outlook inbox. One thing said in several places shows once: an email that repeats an announcement marks it
 # "emailed", the same ad posted on several faculty pages shows once with "also on N pages", and your Work tasks are matched to it.
 # Importance (classify.py in that project): 1 act on it · 2 your week · 3 content · 4 events, internships · 5 noise.
 
-ANNOUNCEMENTS_PROJECT = Path.home() / "Shared/03_AREAS/_AUTOMATION/elearn"
+ANNOUNCEMENTS_PROJECT = ROOT / "scrapers" / "elearn"
 ANNOUNCEMENTS_PYTHON = Path.home() / ".local/share/venvs/elearn/bin/python"
 STREAM_KINDS = ("deadline", "grade", "announcement", "content", "enrolment", "other")
 # What a file or title is about, from the words in it: first match wins
@@ -3767,6 +3771,61 @@ async def announcements_refresh(request, datasette):
     return back("/work", view="announcements", msg="Refreshing eLearn and Outlook…")
 
 
+# --- Work > Settings: signing in to eLearn and Outlook ------------------------------------
+# The scrapers sign in as you with your Sunway ID and password, kept in ~/.config/elearn/credentials
+# (mode 600). Not in this folder or its databases: ~/Shared is an NTFS drive where every file is
+# readable by everyone. The Settings tab writes that file; the password is never shown again.
+
+ELEARN_CREDS = Path.home() / ".config" / "elearn" / "credentials"
+
+
+def elearn_credentials():
+    try:
+        return dict(line.split("=", 1) for line in ELEARN_CREDS.read_text().splitlines() if "=" in line)
+    except OSError:
+        return {}
+
+
+async def elearn_credentials_save(request, datasette):
+    """Save the Sunway ID and password (an empty password keeps the saved one)"""
+    if request.method != "POST":
+        return back("/work", view="settings")
+    form = await request.post_vars()
+    user, password = form.get("user", "").strip(), form.get("password", "")
+    password = password or elearn_credentials().get("ELEARN_PASS", "")
+    if not user or not password:
+        return back("/work", view="settings", error="Fill in your Sunway ID and password.")
+    if any(c in user + password for c in "\r\n"):
+        return back("/work", view="settings", error="The ID and password can't have line breaks.")
+    ELEARN_CREDS.parent.mkdir(parents=True, exist_ok=True)
+    os.chmod(ELEARN_CREDS.parent, 0o700)
+    tmp = ELEARN_CREDS.with_name(".credentials.tmp")
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+        f.write(f"ELEARN_USER={user}\nELEARN_PASS={password}\n")
+    os.replace(tmp, ELEARN_CREDS)
+    return back("/work", view="settings", msg="Saved your eLearn sign-in.")
+
+
+async def elearn_sign_in(request, datasette):
+    """Open a browser window to sign in by hand: eLearn (when it asks for a code) or Outlook (approve on your phone)"""
+    if request.method != "POST":
+        return back("/work", view="settings")
+    which = (await request.post_vars()).get("which")
+    if which not in ("elearn", "outlook"):
+        return back("/work", view="settings")
+    if not ANNOUNCEMENTS_PYTHON.exists():
+        return back("/work", view="settings", error=f"The scraper isn't set up ({ANNOUNCEMENTS_PYTHON} is missing); see scrapers/elearn/README.md.")
+    if not elearn_credentials().get("ELEARN_PASS"):
+        return back("/work", view="settings", error="Save your Sunway ID and password first.")
+    if refresh_running():
+        return back("/work", view="settings", error="A refresh is running; try again when it's done.")
+    args = ["elearn.py", "login"] if which == "elearn" else ["outlook.py", "--show"]
+    subprocess.Popen([str(ANNOUNCEMENTS_PYTHON), "-I", str(ANNOUNCEMENTS_PROJECT / args[0]), *args[1:]], cwd=ANNOUNCEMENTS_PROJECT,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    return back("/work", view="settings", msg="eLearn is opening in a browser window: sign in there (type the code if it asks), then close it."
+                if which == "elearn" else "Outlook is opening in a browser window: approve the sign-in on your phone; it closes by itself.")
+
+
 # --- Settings page, unlocking and locking -------------------------------------------------
 
 def file_size(n):
@@ -3988,5 +4047,7 @@ ROUTES = {
         (r"^/work/announcements/refresh$", announcements_refresh),
         (r"^/work/announcements/course$", announcements_course),
         (r"^/work/announcements/status$", announcements_status),
+        (r"^/work/elearn/credentials$", elearn_credentials_save),
+        (r"^/work/elearn/sign-in$", elearn_sign_in),
     ],
 }

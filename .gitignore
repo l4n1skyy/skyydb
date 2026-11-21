@@ -10,3 +10,8 @@ features
 # Settings from the Settings page (page names, locks, the password hash)
 settings.json
 settings.json.tmp
+
+# The scrapers' own output: your eLearn crawl and stream, Strava's probe answers (personal)
+scrapers/*/dump/
+scrapers/elearn/stream.html
+scrapers/elearn/stream.json

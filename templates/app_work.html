@@ -105,6 +105,25 @@
   <button form="courses-form" class="btn">Save all</button>
   </div>
 </section>
+{% if elearn_login %}
+{% set el = elearn_login %}
+{# Announcements sign in to eLearn and Outlook as you: the ID and password are written to
+   ~/.config/elearn/credentials (only you can read it), never into this folder; the password isn't shown again #}
+<section class="panel elearn-login">
+  <h2>eLearn and Outlook</h2>
+  <p class="muted">Announcements sign in as you. Kept only on this computer, readable by you alone.</p>
+  <form class="inline-form" method="post" action="/work/elearn/credentials" autocomplete="off">
+    <input name="user" value="{{ el.user }}" placeholder="Sunway ID" aria-label="Sunway ID" required>
+    <input name="password" type="password" placeholder="{{ 'password saved, type to change' if el.saved else 'password' }}" aria-label="Password" autocomplete="new-password"{% if not el.saved %} required{% endif %}>
+    <button class="btn small primary">Save</button>
+  </form>
+  <div class="actions">
+    <form method="post" action="/work/elearn/sign-in"><input type="hidden" name="which" value="elearn"><button class="btn small"{% if not el.saved %} disabled{% endif %} title="Opens eLearn in a browser window and signs in; type the code there if it asks">Sign in to eLearn</button></form>
+    <form method="post" action="/work/elearn/sign-in"><input type="hidden" name="which" value="outlook"><button class="btn small"{% if not el.saved %} disabled{% endif %} title="Opens Outlook in a browser window: approve the sign-in on your phone (needed about every two weeks)">Sign in to Outlook</button></form>
+  </div>
+  {% if not el.ready %}<p class="flash error">The scraper isn't set up on this computer yet: see scrapers/elearn/README.md.</p>{% endif %}
+</section>
+{% endif %}
 
 {% else %}
 <form class="panel form-grid note-form" method="post" action="/work/save" autocomplete="off">

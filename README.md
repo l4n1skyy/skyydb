@@ -21,6 +21,7 @@ ALSO! fun fact, can connect ibkr and wise api directly to investments page. And 
 - [Run it](#run-it)
 - [Settings](#settings)
 - [Strava](#strava)
+- [eLearn and Outlook](#elearn-and-outlook)
 - [Commands](#commands)
 - [Credits](#credits)
 
@@ -28,7 +29,7 @@ ALSO! fun fact, can connect ibkr and wise api directly to investments page. And 
 
 | HSK | Workouts |
 |---|---|
-| ![HSK word lists](docs/chinese.png) | ![Workout plans](docs/workouts.png) |
+| ![HSK word lists](docs/chinese.png) | ![Workout stats](docs/workouts.png) |
 
 | Quotes | Work |
 |---|---|
@@ -36,7 +37,7 @@ ALSO! fun fact, can connect ibkr and wise api directly to investments page. And 
 
 | Finance | Settings |
 |---|---|
-| ![Finance stats](docs/finance.png) | ![Settings](docs/settings.png) |
+| ![Finance budget](docs/finance.png) | ![Settings](docs/settings.png) |
 
 ## What's in it
 
@@ -117,7 +118,27 @@ Settings are kept in `settings.json` in this folder (out of git; the password is
 
 ## Strava
 
-Workouts can read every activity you've logged on Strava: your running shows on its Stats tab (totals on top, a shoe on run days in the calendar, distance per week), every run is listed on History, and a run counts towards your streaks. A small scraper signs in to strava.com as you and reads your "My Activities" list (every activity, private ones too); it needs Playwright and Chromium. Paste your profile link on **Workouts → Settings** and press **Sign in to Strava**: a browser window opens, you sign in, and it reads everything. After that, opening Stats (or **Sync now**, or `skyydb strava`) adds what's new. Scraping is against Strava's terms, so it reads only your own account, slowly.
+Workouts can read every activity you've logged on Strava: your running shows on its Stats tab (totals on top, a shoe on run days in the calendar, distance per week), every run is listed on History, and a run counts towards your streaks. A small scraper in [`scrapers/strava`](scrapers/strava) signs in to strava.com as you and reads your "My Activities" list (every activity, private ones too). Scraping is against Strava's terms, so it reads only your own account, slowly.
+
+It needs [uv](https://docs.astral.sh/uv/) and Chromium (`sudo pacman -S uv chromium`). Set it up once:
+
+```bash
+cd scrapers/strava
+UV_PROJECT_ENVIRONMENT=~/.local/share/venvs/strava uv sync
+```
+
+Then paste your profile link on **Workouts → Settings** and press **Sign in to Strava**: a browser window opens, you sign in (Google works too), and it reads everything. After that, opening Stats (or **Sync now**, or `skyydb strava`) adds what's new. No password is stored; your Strava cookies stay in `~/.local/share/strava/`. More in [its README](scrapers/strava/README.md).
+
+## eLearn and Outlook
+
+For Sunway University students: with the `elearn` feature, Work gets an **Announcements** tab that reads your eLearn (activity stream, every course's announcements and your grades) and your Outlook inbox, sorts it by how much it matters, and links deadlines to your Work tasks. The scraper is in [`scrapers/elearn`](scrapers/elearn); set it up once:
+
+```bash
+cd scrapers/elearn
+UV_PROJECT_ENVIRONMENT=~/.local/share/venvs/elearn uv sync
+```
+
+Then on **Work → Settings**, under **eLearn and Outlook**, save your Sunway ID and password. They go to `~/.config/elearn/credentials`, readable by you alone, never into this folder, and the password isn't shown again. **Sign in to Outlook** opens a window once so you can approve the sign-in on your phone (Microsoft asks again about every two weeks); **Sign in to eLearn** does the same if eLearn ever wants a code. After that, **Refresh** on the Announcements tab reads everything again (about a minute). More in [its README](scrapers/elearn/README.md).
 
 ## Commands
 

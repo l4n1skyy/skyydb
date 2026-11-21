@@ -1212,6 +1212,11 @@ a.cal-day:hover { border-color: var(--accent); }
 .strava-panel h2, .strava-panel p { margin: 0; }
 .strava-panel .actions { margin-top: 4px; }
 .strava-panel .actions form { display: inline; }
+/* Work > Settings: eLearn and Outlook sign-in */
+.elearn-login { margin-top: 20px; display: flex; flex-direction: column; gap: 12px; }
+.elearn-login h2, .elearn-login p { margin: 0; }
+.elearn-login .inline-form input { width: 16em; }
+.elearn-login .actions { margin-top: 0; }
 .strava-setup .row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 .steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 0.9rem; }
 .section-head { margin: 28px 0 12px; display: flex; align-items: baseline; gap: 10px; }

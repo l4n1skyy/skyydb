@@ -310,7 +310,7 @@
 
 {% elif view == "settings" %}
 {% set st = strava %}
-{# Strava: read by a scraper that signs in as you (strava.py in _AUTOMATION/strava) #}
+{# Strava: read by a scraper that signs in as you (scrapers/strava/strava.py) #}
 <section class="panel strava-panel" data-strava-status{% if st.running %} data-running{% endif %}>
   <h2>Strava</h2>
   <form class="strava-profile" method="post" action="/workouts/strava/save" autocomplete="off">

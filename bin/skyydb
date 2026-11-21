@@ -568,7 +568,7 @@ def install(names):
         print("Run `skyydb` to start it.")
 
 
-STRAVA_PROJECT = Path.home() / "Shared/03_AREAS/_AUTOMATION/strava"
+STRAVA_PROJECT = Path(__file__).resolve().parent.parent / "scrapers" / "strava"
 STRAVA_PYTHON = Path.home() / ".local/share/venvs/strava/bin/python"
 
 

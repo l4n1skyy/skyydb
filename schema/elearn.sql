@@ -1,5 +1,5 @@
 -- eLearn: what the Sunway eLearn (Blackboard) activity stream shows, scraped by
--- ~/Shared/03_AREAS/_AUTOMATION/elearn (`elearn.py sync`). One row per stream item;
+-- scrapers/elearn (`elearn.py sync`). One row per stream item;
 -- a scrape only adds new items and refreshes the ones it sees again, so nothing is lost
 -- when an item scrolls out of the stream.
 -- `skyydb` applies this file every time it runs, so it only creates what's missing; views are rebuilt.
