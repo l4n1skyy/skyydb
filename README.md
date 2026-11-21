@@ -22,6 +22,7 @@ ALSO! fun fact, lots of scraping and apis yummmm. Scrapes sunway elearn/outlook 
 - [Settings](#settings)
 - [Strava](#strava)
 - [eLearn and Outlook](#elearn-and-outlook)
+- [Expenses from Obsidian](#expenses-from-obsidian)
 - [Commands](#commands)
 - [Credits](#credits)
 
@@ -44,7 +45,7 @@ ALSO! fun fact, lots of scraping and apis yummmm. Scrapes sunway elearn/outlook 
 - **Home**: today's date, a quote of the day, today's HSK words, your workout streaks and today's plan, what's left of today's budget, and your next Work tasks.
 - **HSK**: Chinese words in three lists (to learn, to revise, learnt). Learnt words come back to revise after a week by themselves.
 - **Workouts**: log sets (several at once, or a whole plan in one go), make plans with their own icons and put them on days of the week. Stats has a month calendar with your plan icons, a shoe on run days and your week streak, which days you train most, and your running from Strava. History lists every workout and every run. Any list (a plan's exercises, a day's log) reorders by dragging the dash handle on the right of each row.
-- **Finance**: expenses against a daily and a monthly budget (with a pie of where it went), savings balances by month, and your investments (read from Interactive Brokers and Wise if you connect them).
+- **Finance**: expenses against a daily and a monthly budget (with a pie of where it went), savings balances by month, and your investments (read from Interactive Brokers and Wise if you connect them). Expenses can also be jotted in your Obsidian daily notes and logged with one command ([Expenses from Obsidian](#expenses-from-obsidian)).
 - **Work**: deadlines and tasks per course, with priorities; with `elearn` installed also an Announcements tab that reads Sunway University's eLearn and Outlook.
 - **Quotes** and **Thoughts**: little notebooks with tags.
 
@@ -139,6 +140,24 @@ UV_PROJECT_ENVIRONMENT=~/.local/share/venvs/elearn uv sync
 ```
 
 Then on **Work → Settings**, under **eLearn and Outlook**, save your Sunway ID and password. They go to `~/.config/elearn/credentials`, readable by you alone, never into this folder, and the password isn't shown again. **Sign in to Outlook** opens a window once so you can approve the sign-in on your phone (Microsoft asks again about every two weeks); **Sign in to eLearn** does the same if eLearn ever wants a code. After that, **Refresh** on the Announcements tab reads everything again (about a minute). More in [its README](scrapers/elearn/README.md).
+
+## Expenses from Obsidian
+
+Jot expenses into your Obsidian daily notes as you go, one per line, tagged `#expenses`:
+
+```
+2.5 - Food - nasi lemak #expenses
+3.5 - Household #expenses
+```
+
+That's amount, category, then a note if you like. The [Obsidian plugin](obsidian/) logs them: run **Log #expenses from daily notes** from the command palette, or click the wallet in the left ribbon. It goes through every note in your daily notes folder (`journals/daily` unless you change it in the plugin's settings), saves each line as an expense dated by its note's name (`21-11-2026` or `2026-11-21`), and takes the saved lines out of the notes. A line it can't save, like one with a category Finance doesn't have, stays in the note with `⚠ failed: why` after it; fix it and run again. It only works on the computer skyydb runs on, so lines you write on your phone get logged when you next run it there.
+
+To install it, copy the plugin into your vault and turn it on under **Settings → Community plugins**:
+
+```bash
+mkdir -p "<your vault>/.obsidian/plugins/skyydb"
+cp obsidian/main.js obsidian/manifest.json "<your vault>/.obsidian/plugins/skyydb/"
+```
 
 ## Commands
 

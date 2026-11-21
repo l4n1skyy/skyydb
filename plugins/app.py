@@ -2970,6 +2970,47 @@ async def expense_add(request, datasette):
                 msg=f"Added {money(value)} for {category}" + (f" ({notes})." if notes else "."))
 
 
+async def expenses_import(request, datasette):
+    """Many expenses at once, for the Obsidian plugin (obsidian/): JSON in,
+    {"expenses": [{"date", "amount", "category", "notes"}, ...]}, and one answer per expense
+    in the same order, {"ok": true, "id", "category", "amount"} or {"ok": false, "error"},
+    so the plugin knows which lines to take out of your notes and which to mark as failed.
+    The good ones are saved together; a bad one doesn't stop the rest."""
+    try:
+        items = json.loads(await request.post_body())["expenses"]
+        if not isinstance(items, list) or len(items) > 1000 or not all(isinstance(x, dict) for x in items):
+            raise ValueError
+    except (ValueError, KeyError, TypeError):
+        return Response.json({"ok": False, "error": 'send JSON like {"expenses": [...]}'}, status=400)
+    fi = datasette.get_database("finance")
+    names = {r["name"].lower(): r["name"] for r in await rows(fi, "SELECT name FROM categories")}
+    results, new = [], []
+    for x in items:
+        day = valid_date(str(x.get("date") or ""))
+        amount, category, notes = (str(x.get(k) or "").strip() for k in ("amount", "category", "notes"))
+        try:
+            value = parse_money(amount)
+        except ValueError:
+            value = None
+        if not day:
+            results.append({"ok": False, "error": "no date (name the note like 21-11-2026)"})
+        elif value is None or value <= 0:
+            results.append({"ok": False, "error": f"the amount {amount!r} isn't a number above 0"})
+        elif category.lower() not in names:
+            results.append({"ok": False, "error": f"no category called {category}" if category else "no category"})
+        else:
+            results.append({"ok": True, "category": names[category.lower()], "amount": value})
+            new.append((len(results) - 1, (day, names[category.lower()], value, notes)))
+
+    def insert(conn):  # Datasette runs it as one transaction: all saved or none
+        return [conn.execute("INSERT INTO expenses (date, category, amount, notes) VALUES (?, ?, ?, ?)", row).lastrowid
+                for _, row in new]
+
+    for (i, _), rowid in zip(new, await fi.execute_write_fn(insert) if new else []):
+        results[i]["id"] = rowid
+    return Response.json({"ok": True, "results": results})
+
+
 async def balances_save(request, datasette):
     """Month-end balances: one per account. An account whose balance didn't change is still
     saved, so the month counts as recorded, unless it already has an entry that month."""
@@ -4027,6 +4068,7 @@ ROUTES = {
     "finance": [
         (r"^/finance$", finance),
         (r"^/finance/expense$", expense_add),
+        (r"^/finance/expenses/import$", expenses_import),
         (r"^/finance/balances$", balances_save),
         (r"^/finance/month$", month_setting),
         (r"^/finance/category/flags$", category_flags_save),

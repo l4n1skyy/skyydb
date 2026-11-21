@@ -1,0 +1,9 @@
+{
+  "id": "skyydb",
+  "name": "skyydb",
+  "version": "1.0.0",
+  "minAppVersion": "1.1.0",
+  "description": "Logs the #expenses lines in your daily notes as expenses in skyydb's Finance, then takes them out of the notes.",
+  "author": "l4n1skyy",
+  "isDesktopOnly": true
+}
