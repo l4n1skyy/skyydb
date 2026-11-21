@@ -10,12 +10,12 @@
   <div class="home-top">
     {% if show.date %}<div class="home-date"><b>{{ today.day }}</b><b>{{ today.month }}</b><span>{{ today.rest }}</span></div>{% endif %}
     {% if show.quote and quote and "quotes" in locked %}
-    <div class="home-quote locked-panel"><q>{{ quote.text }}</q> <span class="muted">— {{ quote.author }}</span>{{ cover("quotes") }}</div>
+    <div class="home-quote locked-panel"><q class="quill">{{ quote.text }}</q> <span class="muted">— {{ quote.author }}</span>{{ cover("quotes") }}</div>
     {% elif show.quote and quote %}
     {% if quote.api %}
-    <div class="home-quote"><q>{{ quote.text }}</q> <span class="muted">— {{ quote.author }}</span> <a class="muted credit" href="https://zenquotes.io" target="_blank" rel="noopener">quotes by ZenQuotes</a></div>
+    <div class="home-quote"><q class="quill">{{ quote.text }}</q> <span class="muted">— {{ quote.author }}</span> <a class="muted credit" href="https://zenquotes.io" target="_blank" rel="noopener">quotes by ZenQuotes</a></div>
     {% else %}
-    <a class="home-quote" href="/quotes"><q>{{ quote.text }}</q>{% if quote.author or quote.source %} <span class="muted">— {{ [quote.author, quote.source]|select|join(", ") }}</span>{% endif %}</a>
+    <a class="home-quote" href="/quotes"><q class="quill">{{ quote.text }}</q>{% if quote.author or quote.source %} <span class="muted">— {{ [quote.author, quote.source]|select|join(", ") }}</span>{% endif %}</a>
     {% endif %}
     {% endif %}
   </div>

@@ -1,0 +1,3 @@
+RuneScape Quill 8 from RuneStar's Old School RuneScape fonts (https://github.com/RuneStar/fonts), CC0 1.0 (LICENSE).
+It's the font of quotes and thoughts, at 16px (one font unit = one pixel, so it stays sharp).
+patch.py added the punctuation it lacks (curly quotes, en and em dash, ellipsis) from its own glyphs.

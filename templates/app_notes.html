@@ -35,12 +35,12 @@
   <article class="note-card" data-text="{{ [e.title, e.text, e.author, e.source, e.notes]|select|join(' ') }} {{ e.tags|join(' ') }}">
     <a class="edit" href="?edit={{ e.id }}" title="Edit or delete this {{ book.one }}">edit</a>
     {% if book.name == "quotes" %}
-    <blockquote class="quote-text">{{ e.text }}</blockquote>
+    <blockquote class="quote-text quill">{{ e.text }}</blockquote>
     {% if e.author or e.source %}<p class="attribution">— {{ e.author }}{% if e.author and e.source %}, {% endif %}{% if e.source %}<cite>{{ e.source }}</cite>{% endif %}</p>{% endif %}
     {% if e.notes %}<p class="notes">{{ e.notes }}</p>{% endif %}
     {% else %}
-    {% if e.title %}<h3 class="note-title">{{ e.title }}</h3>{% endif %}
-    <p class="note-text">{{ e.text }}</p>
+    {% if e.title %}<h3 class="note-title quill">{{ e.title }}</h3>{% endif %}
+    <p class="note-text quill">{{ e.text }}</p>
     {% if e.source %}<p class="attribution">{{ source(e.source) }}</p>{% endif %}
     {% endif %}
     {% if e.tags %}<div class="chips">{% for t in e.tags %}<a class="chip small" href="?tag={{ t|urlencode }}">{{ t }}</a>{% endfor %}</div>{% endif %}

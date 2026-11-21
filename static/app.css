@@ -17,6 +17,14 @@
   src: url("/static/fonts/cozette/CozetteVector.ttf") format("truetype");
   font-display: block;
 }
+/* RuneScape Quill 8, for quotes and thoughts: one font unit is one pixel at 16px, so it's only
+   sharp at 16px (or 32px), and it has no bold or italic of its own (none is faked either) */
+@font-face {
+  font-family: "rs-quill";
+  src: url("/static/fonts/runescape/RuneScape-Quill-8.ttf") format("truetype");
+  font-display: swap;
+}
+.quill { font-family: "rs-quill", var(--ui-font); font-size: 16px; line-height: 24px; font-weight: normal; font-style: normal; font-synthesis: none; }
 .px { font-family: "hackernoon"; font-style: normal; font-weight: normal; font-size: 24px; line-height: 1; display: inline-block; vertical-align: middle; }
 
 /* The scrollbar's room is always kept, so pages with and without one don't shift sideways */
@@ -756,11 +764,11 @@ table.costs td.n { width: 6.5em; }
 }
 .note-card .edit { position: absolute; top: 8px; right: 10px; font-size: 0.75rem; color: var(--muted); opacity: 0; }
 .note-card:hover .edit, .note-card .edit:focus { opacity: 1; }
-.quote-text { margin: 0; font-size: 1.02rem; line-height: 1.55; white-space: pre-line; }
+.quote-text { margin: 0; white-space: pre-line; }
 .attribution { margin: 0; color: var(--muted); font-size: 0.88rem; overflow-wrap: anywhere; }
 .attribution cite { font-style: italic; }
-.note-title { margin: 0; font-size: 1rem; padding-right: 2.5em; }
-.note-text { margin: 0; line-height: 1.55; white-space: pre-line; }
+.note-title { margin: 0; padding-right: 2.5em; color: var(--accent); }
+.note-text { margin: 0; white-space: pre-line; }
 .note-card .chips { margin: 2px 0 0; }
 .note-card .chip { text-decoration: none; }
 .note-card .chip:hover { color: var(--text); border-color: var(--axis); }

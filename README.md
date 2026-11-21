@@ -161,5 +161,6 @@ Bundled in `static/fonts/`, each with its licence:
 - [Pixicons](https://www.pixicons.io) (MIT): the pixel icons for pages and plans
 - [HackerNoon Pixel Icon Library](https://github.com/hackernoon/pixel-icon-library) (MIT): more pixel icons
 - [Cozette](https://github.com/slavfox/Cozette) (MIT): the app's small glyphs (lock, cog, tick)
+- [RuneScape Quill 8](https://github.com/RuneStar/fonts) from RuneStar's Old School RuneScape fonts (CC0): the font of quotes and thoughts
 
 Quotes come from [ZenQuotes](https://zenquotes.io), share prices from Yahoo Finance.
