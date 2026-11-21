@@ -4,7 +4,7 @@ A small local web app for personal trackers, each a SQLite database, fully local
 
 Choose what you like, leave what you dont 😛 also p.s. lowkey vibecoded but still useful la
 
-ALSO! fun fact, can connect ibkr and wise api directly to investments page. And quotes are fetched from ZenQuotes through api too.
+ALSO! fun fact, lots of scraping and apis yummmm. Scrapes sunway elearn/outlook email, and strava. Api connection with wise and ibkr for investments. ZenQuotes api for cool quotes and stuff.
 
 <div align="center">
   <h4>Built with ❤️ by <b>l4n1skyy (and mr. claude)</b></h4>
