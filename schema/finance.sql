@@ -7,7 +7,14 @@
 
 -- Filled automatically from the expenses, the budget and the balances, so the
 -- forms can suggest names
-CREATE TABLE IF NOT EXISTS categories (name TEXT PRIMARY KEY COLLATE NOCASE);
+-- daily / monthly: whether the category counts in daily spending (Expenses' Spent per day and
+-- its averages) and in monthly spending (the month's totals, the Budget tab, Spent per month).
+-- Ticked on Finance > Settings.
+CREATE TABLE IF NOT EXISTS categories (
+    name    TEXT PRIMARY KEY COLLATE NOCASE,
+    daily   INTEGER NOT NULL DEFAULT 0,
+    monthly INTEGER NOT NULL DEFAULT 1
+);
 CREATE TABLE IF NOT EXISTS accounts (name TEXT PRIMARY KEY COLLATE NOCASE);
 
 CREATE TABLE IF NOT EXISTS expenses (
@@ -111,11 +118,8 @@ CREATE TABLE IF NOT EXISTS month_settings (
     counted INTEGER NOT NULL CHECK (counted IN (0, 1))
 );
 
--- The categories the Stats tab's "Spent per day" chart adds up, picked on that tab.
--- Without any, it uses the daily budget's categories.
-CREATE TABLE IF NOT EXISTS daily_chart_categories (
-    category TEXT PRIMARY KEY COLLATE NOCASE REFERENCES categories (name)
-);
+-- (The Spent per day chart's own category picks became categories.daily, 2026-11-21)
+DROP TABLE IF EXISTS daily_chart_categories;
 
 -- Remember each category and account for suggestions, and spell it the way it
 -- was first entered ("food " becomes "Food")
@@ -183,17 +187,19 @@ FROM expenses
 GROUP BY month, category
 ORDER BY month DESC, spent DESC;
 
--- One row per month with expenses: spent, the monthly budget and what's left of it, and on
--- how many days anything was logged
+-- One row per month with expenses: spent (in the categories that count monthly), the monthly
+-- budget and what's left of it, and on how many days anything was logged
 DROP VIEW IF EXISTS months;
 CREATE VIEW months AS
-SELECT substr(date, 1, 7) AS month,
+SELECT substr(e.date, 1, 7) AS month,
        count(*) AS expenses,
-       count(DISTINCT date) AS logged_days,
-       round(sum(amount), 2) AS spent,
+       count(DISTINCT e.date) AS logged_days,
+       round(coalesce(sum(CASE WHEN coalesce(c.monthly, 1) THEN e.amount END), 0), 2) AS spent,
        b.budget,
-       round(b.budget - sum(amount), 2) AS left
-FROM expenses, (SELECT round(coalesce(sum(amount), 0), 2) AS budget FROM budget WHERE period = 'monthly') b
+       round(b.budget - coalesce(sum(CASE WHEN coalesce(c.monthly, 1) THEN e.amount END), 0), 2) AS left
+FROM expenses e
+LEFT JOIN categories c ON c.name = e.category,
+     (SELECT round(coalesce(sum(amount), 0), 2) AS budget FROM budget WHERE period = 'monthly') b
 GROUP BY month
 ORDER BY month DESC;
 

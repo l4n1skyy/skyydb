@@ -95,7 +95,7 @@
 {% if now.positions %}
 <div class="charts">
   {% set c = now.costs %}
-  <section class="panel">
+  <section class="panel costs-panel">
     <h2>Fees and costs</h2>
     <table class="costs">
       <tbody>
@@ -103,12 +103,12 @@
         <tr><td>Conversion fees</td><td class="muted">{% if shares.conversions %}Wise's fees on your {{ shares.conversions|length }} transfers{% elif shares.fee_categories %}logged as {{ shares.fee_categories|join(", ") }} expenses{% else %}none known yet{% endif %}</td><td class="n">{{ (c.conversion_fees + c.fee_expenses)|money }}</td></tr>
         <tr><td>Exchange rate</td><td class="muted">{% if c.spread_known %}Wise's rate against the market's closing rate that day, fees aside{% else %}known once the transfers are{% endif %}</td><td class="n">{{ c.spread|money if c.spread_known else "-" }}</td></tr>
       </tbody>
-      <tfoot><tr><td>All fees and costs</td><td class="muted">{% if now.put_in %}{{ "%.2f"|format(100 * c.total / now.put_in) }}% of what you put in{% endif %}</td><td class="n">{{ c.total|money }}</td></tr></tfoot>
     </table>
+    <table class="costs costs-total"><tr><td>Total</td><td class="muted">{% if now.put_in %}{{ "%.2f"|format(100 * c.total / now.put_in) }}% of what you put in{% endif %}</td><td class="n">{{ c.total|money }}</td></tr></table>
   </section>
 
   {% set x = exit %}
-  <section class="panel">
+  <section class="panel costs-panel">
     <h2>Estimated exit fees</h2>
     <table class="costs">
       <tbody>
@@ -116,8 +116,8 @@
         <tr><td>Withdrawing</td><td class="muted">IBKR's first withdrawal each month is free</td><td class="n">{{ 0|money }}</td></tr>
         <tr><td>Back to ringgit</td><td class="muted">{% if x.wise %}Wise's fee to change {% for cur, v in x.left.items() %}{{ v|amount(cur) }}{% if not loop.last %} + {% endif %}{% endfor %} into ringgit: {% for cur, v in x.wise.items() %}{{ v|amount(cur) }}{% if not loop.last %} + {% endif %}{% endfor %}{% else %}Wise's price comes in when you open Finance{% endif %}</td><td class="n">{{ x.wise_myr|money if x.wise else "-" }}</td></tr>
       </tbody>
-      <tfoot><tr><td>Total</td><td class="muted">{% if now.worth %}{{ "%.2f"|format(100 * x.total / now.worth) }}% of what you have{% endif %}</td><td class="n">{{ x.total|money if x.known else "-" }}</td></tr></tfoot>
     </table>
+    <table class="costs costs-total"><tr><td>Total</td><td class="muted">{% if now.worth %}{{ "%.2f"|format(100 * x.total / now.worth) }}% of what you have{% endif %}</td><td class="n">{{ x.total|money if x.known else "-" }}</td></tr></table>
   </section>
 </div>
 {% endif %}

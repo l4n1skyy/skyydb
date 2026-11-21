@@ -6,7 +6,7 @@
 {% block main %}
 <div class="page-head">
   <h1>{{ names[book.name] }}</h1>
-  <nav class="tabs" aria-label="{{ names[book.name] }}">
+  <nav class="tabs tabs-end" aria-label="{{ names[book.name] }}">
     <div class="tab-group">
       <a href="?view=add{% if tag %}&amp;tag={{ tag|urlencode }}{% endif %}"{% if view == "add" %} aria-current="page"{% endif %}>+ Add a {{ book.one }}</a>
       <a href="?view=settings"{% if view == "tags" %} aria-current="page"{% endif %}>Settings</a>
@@ -19,10 +19,6 @@
   <input type="search" id="note-q" placeholder="Search {{ book.many }}" autocomplete="off" aria-label="Search {{ book.many }}">
   <span class="spacer"></span>
   {% if book.name == "quotes" %}
-  <form class="zen-toggle" method="post" action="/quotes/zenquotes">
-    <label class="check" title="On how many days out of 100 Home's quote of the day comes from zenquotes.io (0 = never)">ZenQuotes on <input type="number" name="percent" min="0" max="100" step="5" value="{{ zen }}" aria-label="Percent of days"> % of days</label>
-    <noscript><button class="btn small">Save</button></noscript>
-  </form>
   <form class="zen-add" method="post" action="/quotes/zenquote-add"><button class="btn small" title="Adds today's quote from zenquotes.io to your quotes, tagged the way yours are">+ Add today's ZenQuote</button></form>
   {% endif %}
   <span class="muted" id="note-shown" data-one="{{ book.one }}" data-many="{{ book.many }}">{{ entries|length }} {{ book.one if entries|length == 1 else book.many }}</span>
@@ -93,6 +89,15 @@
 {% endif %}
 
 {% else %}
+{% if book.name == "quotes" %}
+<section class="panel tags-panel zen-panel">
+  <h2>Quote of the day</h2>
+  <form class="zen-toggle" method="post" action="/quotes/zenquotes">
+    <label class="check" title="On how many days out of 100 Home's quote of the day comes from zenquotes.io (0 = never)">ZenQuotes on <input type="number" name="percent" min="0" max="100" step="5" value="{{ zen }}" aria-label="Percent of days"> % of days</label>
+    <noscript><button class="btn small">Save</button></noscript>
+  </form>
+</section>
+{% endif %}
 <section class="panel tags-panel">
   {% if tags %}
   <table class="tag-table">

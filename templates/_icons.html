@@ -1,0 +1,10 @@
+{# A pixel-icon picker: a small button showing the chosen icon. Opening it shows every icon there is
+   (Pixicons and HackerNoon's, the suggested ones first) with a search box; app.js builds that grid
+   the first time it opens. The choice goes in a hidden field named `name`. #}
+{% macro icon_picker(name, current, choices, label="Icon") %}
+<details class="icon-picker" data-suggested="{{ choices|join(' ') }}">
+  <summary title="{{ label }}: pick one" aria-label="{{ label }}">{% if current %}{{ px(current) }}{% else %}<span class="icon-none" aria-hidden="true">+</span>{% endif %}</summary>
+  <input type="hidden" name="{{ name }}" value="{{ current }}">
+  <div class="icon-grid" role="dialog" aria-label="{{ label }}"></div>
+</details>
+{% endmacro %}

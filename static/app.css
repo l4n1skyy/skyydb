@@ -3,6 +3,22 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* Pixel icons. Pages', plans' and the streak's: the HackerNoon Pixel Icon Library (MIT,
+   static/fonts/hackernoon), on a 24px grid, so sharpest at 24px or 12px; in a template px("fire").
+   The app's own small icons (lock, cog, tick, calendar, handle): Cozette's Nerd Font glyphs (MIT,
+   static/fonts/cozette), a 13px font, so sharpest at 13px or 26px. */
+@font-face {
+  font-family: "hackernoon";
+  src: url("/static/fonts/hackernoon/iconfont.woff2") format("woff2");
+  font-display: block;
+}
+@font-face {
+  font-family: "cozette";
+  src: url("/static/fonts/cozette/CozetteVector.ttf") format("truetype");
+  font-display: block;
+}
+.px { font-family: "hackernoon"; font-style: normal; font-weight: normal; font-size: 24px; line-height: 1; display: inline-block; vertical-align: middle; }
+
 /* The scrollbar's room is always kept, so pages with and without one don't shift sideways */
 html { font-size: 15px; scrollbar-gutter: stable; }
 body {
@@ -60,13 +76,17 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 }
 .top-link:hover { color: var(--text); background: var(--surface); }
 .top-link[aria-current] { color: var(--text); background: var(--surface-2); }
-/* Nerd Font icons (CozetteVector has them): cog, lock, open lock */
+/* Cozette's icons in the top bar: cog, lock, open lock */
 .settings-link::before, .lock-again::before, .unlock-link::before, .lock-glyph::before, .main-nav a.locked::before {
-  font-family: CozetteVector, var(--ui-font); font-size: 1.05em; line-height: 1;
+  font-family: "cozette"; font-size: 26px; line-height: 1; font-weight: normal;
 }
 .settings-link::before { content: "\f013"; }
 .lock-again::before, .lock-glyph::before { content: "\f023"; }
 .unlock-link::before { content: "\f09c"; }
+.main-nav a.locked::before { font-size: 13px; }
+.top-link { padding: 4px 10px 4px 6px; }
+.main-nav a:has(.nav-icon), .main-nav a.locked { display: inline-flex; align-items: center; gap: 6px; padding-left: 8px; }
+.nav-icon { color: var(--accent); }
 
 /* Locked pages: the name is blurred like censored text (its shape still shows) behind a lock */
 .censored, .main-nav a.locked .nav-name { filter: blur(2.2px); user-select: none; -webkit-user-select: none; }
@@ -134,7 +154,7 @@ label > input:not([type="checkbox"]), label > select, label > textarea { font-si
 label.check { flex-direction: row; align-items: center; gap: 6px; font-size: 0.9rem; }
 .date-controls { display: flex; gap: 6px; }
 .date-controls > input[data-date-input] { flex: 1; }
-.date-picker-button { width: 38px; height: 38px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-family: CozetteVector, var(--ui-font); font-size: 1.35rem; line-height: 1; cursor: pointer; }
+.date-picker-button { width: 38px; height: 38px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-family: "cozette"; font-size: 26px; line-height: 1; cursor: pointer; }
 .date-picker-button:hover { border-color: var(--axis); }
 .date-picker { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
@@ -294,7 +314,7 @@ a.tile:hover { border-color: var(--axis); }
 .cat-add { display: flex; flex-direction: row; align-items: center; gap: 8px; margin-bottom: 14px; }
 .cat-add input { flex: 0 1 280px; min-width: 0; }
 .cat-edit { width: 100%; max-width: 280px; }
-.cat-actions { display: flex; gap: 8px; margin-top: 12px; }
+.cat-actions { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
 
 /* --- Workouts ---------------------------------------------------------------- */
 
@@ -445,18 +465,16 @@ tbody tr:last-child td { border-bottom: 0; }
 .small-print { font-size: 0.85rem; margin: 0; }
 .coming-up { margin-bottom: 20px; }
 .upcoming-days { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
-.upcoming-days a {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  height: 100%;
+.upcoming-days .day-card {
   padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  text-decoration: none;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
 }
-.upcoming-days a:hover { border-color: var(--axis); }
-.upcoming-days li.today a { background: var(--surface-2); border-color: var(--accent); }
+.upcoming-days .day-card:hover { border-color: var(--axis); }
+.upcoming-days li.today .day-card { background: var(--surface-2); border-color: var(--accent); }
 .upcoming-days .when { font-size: 0.8rem; color: var(--muted); }
 .upcoming-days li.today .when { color: var(--text); }
 .upcoming-days .what { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -474,14 +492,35 @@ tbody tr:last-child td { border-bottom: 0; }
 .plan-card header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .plan-card h3 { font-size: 1.1rem; }
 .plan-card form { display: inline; }
+/* The plan cards' tables: fixed column widths, the same in every card, so they line up */
+.plan-table { table-layout: fixed; }
+.plan-table .c-ex { width: 26%; }
+.plan-table .c-sets { width: 8%; }
+.plan-table .c-reps { width: 9%; }
+.plan-table .c-weight { width: 13%; }
+.plan-table th.n, .plan-table td.n { text-align: left; }
+.plan-table th, .plan-table td { overflow-wrap: anywhere; }
+.plan-table .c-notes { padding-left: 32px; }
 
-.plan-editor { display: flex; flex-direction: column; gap: 14px; max-width: 980px; }
+.plan-editor { display: flex; flex-direction: column; gap: 14px; max-width: 1100px; }
 .plan-editor h2 { margin: 0; }
 .plan-rows-wrap { overflow-x: auto; }
 .plan-rows td { padding: 4px 8px 4px 0; border: 0; }
 .plan-rows input { width: 100%; }
 .plan-rows input.narrow { width: 7.5em; }
 .row-tools { white-space: nowrap; }
+/* The plan editor: room for long exercise names and notes, short boxes for the numbers, and
+   remove + the drag handle level with the boxes */
+.plan-edit-table { table-layout: fixed; min-width: 760px; }
+.plan-edit-table .c-ex { width: 32%; }
+.plan-edit-table .c-sets { width: 8%; }
+.plan-edit-table .c-reps { width: 9%; }
+.plan-edit-table .c-weight { width: 11%; }
+.plan-edit-table .c-tools { width: 7.5em; }
+.plan-edit-table input.narrow { width: 100%; }
+.plan-edit-table td { vertical-align: middle; }
+.plan-edit-table th { padding: 7px 8px 7px 11px; }  /* each heading over the text in its box */
+.plan-edit-table .row-tools { text-align: right; padding-right: 0; }
 
 .plan-today { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin: 6px 0 12px; background: var(--surface-2); }
 .plan-today-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -504,11 +543,10 @@ tbody tr:last-child td { border-bottom: 0; }
   .upcoming-days { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* Muscle groups */
+/* Chips: tags, filters */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
 .chip { font-size: 0.78rem; padding: 1px 8px; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); color: var(--text); }
 .chip.small { font-size: 0.72rem; padding: 0 6px; color: var(--muted); }
-.upcoming-days .muscles { font-size: 0.75rem; color: var(--muted); }
 
 /* --- Finance ------------------------------------------------------------------- */
 
@@ -569,11 +607,11 @@ tbody tr:last-child td { border-bottom: 0; }
 .row-tools form { display: inline; }
 .notes-cell { white-space: pre-line; }
 
-.budget-editor { display: flex; flex-direction: column; gap: 14px; }
-.budget-editor h2 { margin: 0; }
-.budget-editor-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px 32px; }
-.budget-edit { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-.budget-edit h3 .muted { font-weight: 400; margin-left: 6px; }
+.budget-editor-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; align-items: stretch; }
+.budget-edit { display: flex; flex-direction: column; gap: 8px; }
+.budget-edit h2 { margin: 0 0 4px; }
+.budget-edit h2 .muted { font-weight: 400; margin-left: 6px; font-size: 0.9rem; }
+.budget-edit .actions { margin-top: auto; padding-top: 8px; width: 100%; }
 .budget-edit table { width: auto; }
 
 /* A dashed line across a column chart: the budget */
@@ -705,6 +743,11 @@ table.costs td.n { width: 6.5em; }
 .tag-filter .chip:hover { color: var(--text); border-color: var(--axis); }
 .tag-filter .chip[aria-current] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .tag-filter .chip .n { opacity: 0.7; }
+.tag-filter.centred { justify-content: center; }
+/* Quotes and Thoughts have no main tabs, only "+ Add" and Settings: on the right like the other pages' */
+.tabs.tabs-end { justify-content: flex-end; }
+.zen-panel { margin-bottom: 20px; }
+.zen-panel .zen-toggle { margin: 0; }
 .notes-list { columns: 3 300px; column-gap: 14px; }
 .note-card {
   position: relative; break-inside: avoid; margin: 0 0 14px; padding: 16px 18px 12px;
@@ -860,7 +903,7 @@ table.costs td.n { width: 6.5em; }
 
 .home-main .panel { padding-block: 30px; }
 .home-main { align-content: stretch; }
-.home-chinese .pick .moves:has(.ghost) { flex-direction: column; align-items: stretch; }
+.home-chinese .pick .moves:has(.ghost) { flex-direction: column; align-items: stretch; gap: 7px; }
 
 
 .brand { display: flex; align-items: center; }
@@ -986,7 +1029,10 @@ main.loading { opacity: 0.45; }
 
 /* --- Settings ------------------------------------------------------------------- */
 
-.settings-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.settings-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: stretch; }
+/* The Pages card fills its column down to the Raw data card; its Save sits at the bottom */
+.settings-pages { display: flex; flex-direction: column; }
+.settings-pages .actions { margin-top: auto; padding-top: 14px; }
 .settings-side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .settings-raw { grid-column: 1 / -1; }
 .settings-grid .panel h2 { display: flex; align-items: baseline; gap: 10px; }
@@ -994,7 +1040,6 @@ main.loading { opacity: 0.45; }
 .pages-table td { vertical-align: middle; padding-top: 6px; padding-bottom: 6px; }
 .pages-table input:not([type="checkbox"]) { width: 100%; }
 .pages-table th:nth-child(3), .pages-table th:nth-child(4), .pages-table td:nth-child(3), .pages-table td:nth-child(4) { text-align: center; width: 7em; }
-.settings-pages .actions { margin-top: 14px; }
 .settings-pages .actions input { width: min(260px, 100%); }
 .widget-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .form-stack { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
@@ -1026,3 +1071,256 @@ main.loading { opacity: 0.45; }
 .plan-quick h2 { margin: 0; font-size: 0.9rem; color: var(--muted); font-weight: 400; }
 .plan-quick-row { display: flex; gap: 8px; }
 .plan-quick-row select { flex: 1; min-width: 0; }
+
+/* --- Workouts > Stats: the month calendar and the streak ---------------------------- */
+
+/* The streak's flame: the pixel fire */
+.fire-glyph::before { content: "\f2bd"; font-family: "hackernoon"; font-size: 24px; line-height: 1; color: var(--streak); vertical-align: middle; }
+.tile-label .fire-glyph::before, .cal-summary .fire-glyph::before { font-size: 12px; }
+.stats-cols { display: grid; grid-template-columns: minmax(0, 490px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.cal-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.cal-head h2 { margin: 0; font-size: 1.3rem; }
+.cal-head h2 { order: -1; margin-right: auto; }
+.cal-summary { display: flex; gap: 36px; margin-bottom: 18px; }
+.cal-summary > div { display: flex; flex-direction: column; gap: 2px; }
+.cal-summary b { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+/* Seven days and the week column; no gaps between rows, so the streak band runs unbroken */
+.cal-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)) 64px; align-items: stretch; }
+.cal-weekdays span { text-align: center; color: var(--muted); font-size: 0.9rem; padding-bottom: 8px; }
+.cal-day {
+  justify-self: center; align-self: center; width: 42px; height: 42px; margin: 5px 0;
+  display: flex; align-items: center; justify-content: center; border-radius: 50%;
+  border: 1.5px solid var(--axis); color: var(--text); text-decoration: none;
+  font-variant-numeric: tabular-nums; font-size: 0.95rem;
+}
+a.cal-day:hover { border-color: var(--accent); }
+.cal-day.blank { border: 0; }
+.cal-day.future { border-color: var(--border); color: var(--muted); opacity: 0.6; }
+.cal-day.done { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
+.cal-day.done:hover { filter: brightness(1.08); }
+.cal-day.today { outline: 2px solid var(--accent); outline-offset: 3px; }
+.cal-week { display: flex; align-items: center; justify-content: center; margin: 0 8px; }
+.cal-week.streak { background: color-mix(in srgb, var(--streak) 22%, transparent); }
+.cal-week.band-start { border-top-left-radius: 26px; border-top-right-radius: 26px; }
+.cal-week.band-end { border-bottom-left-radius: 26px; border-bottom-right-radius: 26px; }
+.week-mark { width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--axis); }
+.week-mark.later { border-color: var(--border); opacity: 0.6; }
+.week-mark.check { display: flex; align-items: center; justify-content: center; border: 0; background: var(--streak); }
+.week-mark.check::before { content: "\f00c"; font-family: "cozette"; color: var(--on-accent); font-size: 13px; line-height: 1; }
+.cal-week:not(.streak) .week-mark.check { background: var(--surface-2); }
+.cal-week:not(.streak) .week-mark.check::before { color: var(--streak); }
+/* The flame on the streak's latest week, with the number of weeks under it */
+.flame { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 4px 0; }
+.flame b { color: var(--streak); font-size: 0.95rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+/* Each day sits in a cell; workouts on days in a row are joined by a band as tall as the circles */
+.cal-cell { position: relative; display: flex; align-items: center; justify-content: center; min-height: 52px; }
+.cal-cell.link-prev::before, .cal-cell.link-next::after {
+  content: ""; position: absolute; top: 50%; height: 42px; transform: translateY(-50%);
+  background: color-mix(in srgb, var(--accent) 26%, transparent);  /* a dim, see-through bridge */
+}
+.cal-cell.link-prev::before { left: 0; right: 50%; }
+.cal-cell.link-next::after { left: 50%; right: 0; }
+.cal-cell .cal-day { position: relative; z-index: 1; margin: 0; }
+.cal-day.has-icon .px { color: var(--on-accent); }
+.cal-dot { position: absolute; top: -1px; right: -1px; width: 11px; height: 11px; border-radius: 50%; background: var(--text); border: 2px solid var(--surface); }
+.stats-main { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+@media (max-width: 900px) { .stats-cols { grid-template-columns: minmax(0, 1fr); } }
+.stats-side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.compare td b { font-size: 1.05rem; }
+.delta { margin-left: 6px; font-size: 0.8rem; padding: 1px 6px; border-radius: 8px; font-variant-numeric: tabular-nums; }
+.delta.up { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+.delta.down { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+
+/* --- Pixel-icon picker (Settings > Pages, the plan editor) ------------------------- */
+
+.icon-picker { position: relative; display: inline-block; }
+.icon-picker summary {
+  list-style: none; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--accent); cursor: pointer;
+}
+.icon-picker summary::-webkit-details-marker { display: none; }
+.icon-picker summary:hover, .icon-picker[open] summary { border-color: var(--accent); }
+.icon-none { color: var(--muted); font-size: 0.8rem; }
+.icon-grid {
+  position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; width: 352px; max-height: 360px; overflow-y: auto;
+  display: grid; grid-template-columns: repeat(8, 36px); gap: 4px; padding: 0 8px 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 12px 30px rgb(0 0 0 / 0.4);
+}
+.icon-grid:empty { display: none; }
+.icon-grid input[type=search] {
+  grid-column: 1 / -1; position: sticky; top: 0; z-index: 1; margin: 0 -8px 2px; padding: 10px 12px;
+  border: 0; border-bottom: 1px solid var(--border); border-radius: 10px 10px 0 0; background: var(--surface);
+}
+.icon-grid input[type=search]:focus { outline: none; border-bottom-color: var(--accent); }
+.icon-group { grid-column: 1 / -1; margin: 8px 2px 2px; font-size: 0.78rem; color: var(--text); }
+.icon-group .muted { font-size: 0.72rem; }
+.icon-choice {
+  width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; padding: 0;
+  border: 0; border-radius: 6px; background: none; color: var(--text); cursor: pointer;
+}
+.icon-choice:hover, .icon-choice:focus-visible { background: var(--surface-2); outline: none; }
+.icon-choice[aria-pressed=true] { background: var(--accent); color: var(--on-accent); }
+.icon-choice[hidden] { display: none; }
+.icon-clear { grid-column: span 2; width: auto; font: inherit; font-size: 0.8rem; color: var(--muted); margin-top: 6px; }
+.pages-table .icon-picker summary { width: 34px; height: 34px; }
+.name-with-icon { display: flex; align-items: flex-end; gap: 10px; }
+.name-with-icon label { flex: 1; }
+.icon-field { display: flex; flex-direction: column; gap: 4px; }
+.field-label { font-size: 0.85rem; color: var(--muted); }
+.plan-icon { color: var(--accent); margin-right: 8px; }
+.plan-card h3 { display: flex; align-items: center; }
+.upcoming-days .what .plan-icon { font-size: 12px; margin-right: 5px; }
+
+/* Coming up: each day is a button that opens the day's-plan popup */
+.day-card { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; width: 100%; height: 100%; cursor: pointer; }
+.upcoming-days .what { display: flex; align-items: center; }
+.day-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.day-plan-dialog select { flex: 1; min-width: 0; }
+.setup-panel { max-width: 460px; display: flex; flex-direction: column; gap: 12px; }
+.setup-panel h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.setup-panel .lock-glyph { color: var(--accent); }
+.setup-panel p { margin: 0; }
+
+/* Settings > Pages: names read as text until "edit"; the dash handle drags a row */
+.name-cell { white-space: nowrap; }
+.name-cell .name-view { margin-right: 8px; }
+.name-cell input { width: 100%; }
+.drag-cell { width: 84px; white-space: nowrap; text-align: right; }
+.drag-cell .drag-handle { vertical-align: middle; }
+.drag-cell .icon { vertical-align: middle; margin-left: 6px; }
+/* The drag handle on the right of a row you can reorder: three short dashes, drawn (no font
+   needed); drag it, or focus it and press up / down */
+.drag-handle {
+  display: inline-block; flex: none; box-sizing: border-box; width: 22px; height: 24px; cursor: grab;
+  color: var(--muted); border-radius: 4px; vertical-align: middle;
+  background: linear-gradient(currentColor 0 0) 4px 6px / 14px 2px no-repeat,
+              linear-gradient(currentColor 0 0) 4px 11px / 14px 2px no-repeat,
+              linear-gradient(currentColor 0 0) 4px 16px / 14px 2px no-repeat;
+}
+.drag-handle:hover, .drag-handle:focus-visible { color: var(--text); }
+.drag-handle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.dragging { opacity: 0.4; }
+/* Plan cards and the editor: the handle's column, last */
+.plan-table td.drag-cell, .plan-table th.c-drag { width: 34px; padding-left: 0; padding-right: 0; }
+.row-tools .drag-handle { margin-left: 10px; }
+.exercise-head .drag-handle { align-self: center; }
+.exercise-head.lone .drag-handle { margin-right: -8px; }  /* level with the other exercises' handles */
+
+/* --- Workouts > Settings (Strava) and the running stats ---------------------------- */
+
+.strava-panel { max-width: 760px; display: flex; flex-direction: column; gap: 12px; }
+.strava-panel h2, .strava-panel p { margin: 0; }
+.strava-panel .actions { margin-top: 4px; }
+.strava-panel .actions form { display: inline; }
+.strava-setup .row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; font-size: 0.9rem; }
+.section-head { margin: 28px 0 12px; display: flex; align-items: baseline; gap: 10px; }
+.section-head .muted { font-weight: 400; font-size: 0.85rem; }
+.run-tiles { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.running-hint { margin-top: 20px; }
+/* Stats > Favourite training days: a heat strip under the calendar's weekday letters; one hue
+   (the calendar's purple), brighter for more days. Steps checked with the palette validator
+   (ordinal: monotone, visible gaps, the faintest clears the panel at 2.5:1) */
+.heat { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin-top: 14px; }
+.heat-day { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.heat-letter { color: var(--muted); font-size: 0.9rem; }
+.heat-cell { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-variant-numeric: tabular-nums; font-size: 0.95rem; font-weight: 700; color: var(--text); }
+.heat-cell:hover, .heat-cell:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.lvl-0 { border: 1.5px solid var(--axis); font-weight: 400; color: var(--muted); }
+.lvl-1 { background: color-mix(in srgb, var(--accent) 40%, var(--surface)); }
+.lvl-2 { background: color-mix(in srgb, var(--accent) 60%, var(--surface)); }
+.lvl-3 { background: color-mix(in srgb, var(--accent) 80%, var(--surface)); color: var(--on-accent); }
+.lvl-4 { background: var(--accent); color: var(--on-accent); }
+.heat-key { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 14px; font-size: 0.8rem; color: var(--muted); }
+.heat-key i { width: 12px; height: 12px; border-radius: 50%; box-sizing: border-box; }
+.heat-key span:first-child { margin-right: 4px; }
+.heat-key span:last-child { margin-left: 4px; }
+/* History > Runs */
+.history.runs td:nth-child(2) { overflow-wrap: anywhere; }
+
+/* Distance per week, after Strava's weekly card: the chosen week on top, a line with a soft fill
+   below, a ring per week (the chosen one filled, with a halo and a line down to the base) */
+.wk-chart { --pt: 12px; }
+.wk-span { font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; margin-top: 2px; }
+.wk-stats { display: flex; margin: 12px 0 22px; }
+.wk-stats > div { display: flex; flex-direction: column; gap: 4px; padding: 0 22px; border-left: 1px solid var(--axis); }
+.wk-stats > div:first-child { padding-left: 0; border-left: 0; }
+.wk-stats span { color: var(--muted); font-size: 0.85rem; }
+.wk-stats b { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wk-label { font-weight: 700; text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.02em; }
+.wk-plot { position: relative; height: 170px; margin: 30px calc(var(--pt) / 2 + 2px) 34px; }
+.wk-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.wk-plot svg line, .wk-plot svg polyline, .wk-plot svg path { vector-effect: non-scaling-stroke; }
+.wk-top { position: absolute; left: 0; bottom: calc(100% + 6px); font-size: 0.8rem; color: var(--muted); }
+.wk-grid line { stroke: var(--axis); stroke-width: 1; opacity: 0.45; }
+.wk-base { stroke: var(--axis); stroke-width: 1; }
+.wk-area { fill: url(#run-fill); stroke: none; }
+.wk-line { fill: none; stroke: var(--run); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.wk-rule { position: absolute; bottom: 0; width: 2px; margin-left: -1px; background: var(--run); pointer-events: none; }
+/* Each week's ring sits in a bigger, invisible button (easy to hit) */
+.wk-pt { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; padding: 0; border: 0; background: none; cursor: pointer; }
+.wk-pt::before { content: ""; position: absolute; left: 50%; top: 50%; width: var(--pt); height: var(--pt); transform: translate(-50%, -50%);
+  box-sizing: border-box; border-radius: 50%; border: 2px solid var(--run); background: var(--surface); }
+.wk-pt.on::before { width: 16px; height: 16px; background: var(--run); box-shadow: 0 0 0 6px color-mix(in srgb, var(--run) 30%, transparent); }
+.wk-pt:focus-visible { outline: none; }
+.wk-pt:focus-visible::before { outline: 2px solid var(--text); outline-offset: 3px; }
+.wk-month { position: absolute; top: calc(100% + 10px); transform: translateX(-50%); font-size: 0.8rem; color: var(--muted); text-transform: uppercase; }
+
+/* Two workouts on one day: both icons, squeezed into the circle, top left and top right */
+.cal-two { position: absolute; inset: 0; }
+.cal-two .px { position: absolute; top: 9px; font-size: 12px; }
+.cal-two .px:first-child { left: 8px; }
+.cal-two .px:last-child { right: 8px; }
+
+/* --- Finance > Budget: the pie, beside the table by category ------------------------ */
+
+.budget-top { display: grid; grid-template-columns: minmax(0, 400px) minmax(0, 1fr); gap: 20px; align-items: stretch; }
+.pie { display: flex; align-items: center; gap: 20px; }
+.pie svg { width: 160px; height: 160px; flex: none; }
+.pie path, .pie circle { stroke: var(--surface); stroke-width: 2; stroke-linejoin: round; outline: none; }
+.pie path:hover, .pie path:focus-visible, .pie circle:hover { filter: brightness(1.12); }
+.pie-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; min-width: 0; flex: 1; font-size: 0.9rem; }
+.pie-legend li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.pie-legend i { width: 10px; height: 10px; border-radius: 2px; }
+.pie-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pie-val { font-variant-numeric: tabular-nums; }
+.pie-share { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 3ch; text-align: right; }
+@media (max-width: 900px) { .budget-top { grid-template-columns: minmax(0, 1fr); } }
+
+/* Investments: both fee cards end with their total at the very bottom */
+.costs-panel { display: flex; flex-direction: column; }
+.costs-panel table.costs-total { margin-top: auto; }
+table.costs-total td { border-top: 1px solid var(--axis); border-bottom: 0; font-weight: 700; }
+.strava-profile { display: flex; align-items: flex-end; gap: 8px; }
+.strava-profile label { flex: 1; }
+
+/* Finance > Budget: a 2 x 2 grid, so the cards line up row by row: Daily budget beside the pie,
+   Monthly budget beside By category (the wrappers step aside with display: contents) */
+.budget-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 20px; align-items: stretch; margin-bottom: 20px; }
+.budget-left, .budget-right, .budget-layout .budget-editor, .budget-layout .budget-editor-cols { display: contents; }
+.budget-layout .budget-edit:nth-of-type(1) { grid-column: 1; grid-row: 1; }
+.budget-layout .budget-edit:nth-of-type(2) { grid-column: 1; grid-row: 2; }
+.budget-layout .pie-panel { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; }
+.budget-layout .bycat-panel { grid-column: 2; grid-row: 2; }
+.pie-panel .pie { flex: 1; justify-content: center; gap: 32px; }
+.pie-panel .pie svg { width: 200px; height: 200px; }
+.pie-panel .pie-legend { flex: 0 1 300px; }
+@media (max-width: 900px) {
+  .budget-layout { grid-template-columns: minmax(0, 1fr); }
+  .budget-layout .budget-edit:nth-of-type(n), .budget-layout .pie-panel, .budget-layout .bycat-panel { grid-column: 1; grid-row: auto; }
+}
+/* Finance > Settings: the Daily / Monthly ticks, and Connections in its own card */
+.flag-col { text-align: center; width: 6em; }
+.flag-col input { accent-color: var(--accent); width: 16px; height: 16px; }
+.connections { margin-top: 20px; }
+.connections h2 { margin-bottom: 12px; }
+.connections .ibkr-form { margin-bottom: 16px; }  /* room between Save and the note under it */
+
+/* Pixicons (11x11, drawn as SVG): 22px beside the 24px glyphs, 11px where those are 12px */
+svg.pxi { width: 0.9167em; height: 0.9167em; display: inline-block; vertical-align: middle; }
+
+.brand-wrap { display: flex; flex-direction: column; align-items: center; }
+/* Work > Announcements: when each source was last read sits beside Refresh, like Finance's status */
+.an-refresh .refresh-status { white-space: nowrap; }
+.an-refresh .refresh-status .bad { color: var(--danger); }

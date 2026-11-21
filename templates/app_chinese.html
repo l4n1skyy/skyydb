@@ -20,12 +20,6 @@
 {% if moved %}<p class="flash" role="status">{{ moved }} learnt word{{ "s" if moved != 1 }} reached {{ interval }} days and moved to To revise.</p>{% endif %}
 
 {% if words is defined %}
-<p class="hint">
-  {% if tab == "to-revise" %}Words you learnt {{ interval }} or more days ago. <b>Learnt</b> puts a word back in Learnt for another {{ interval }} days; <b>Forgot</b> sends it back to To learn.
-  {% elif tab == "to-learn" %}Mark a word <b>Learnt</b> once you know it. It comes back to To revise {{ interval }} days later.
-  {% else %}Words you know. Each one moves to To revise {{ interval }} days after you last studied it; that happens by itself.{% endif %}
-</p>
-
 {% set levels = words|map(attribute="hsk")|select|unique|sort %}
 {% set cats = words|map(attribute="category")|select|unique|sort %}
 <div class="toolbar" role="search">

@@ -1,0 +1,3 @@
+Pixicons (https://www.pixicons.io, npm pixiconsio 1.0.40), MIT licence (LICENSE): 11x11 pixel icons.
+icons.json: name -> [regular, fill], each 121 bits (11 rows of 11, top-left first) in hex; plugins/app.py draws them as SVG.
+extra.json: the same format, drawn for skyydb (rock, leg), MIT like skyydb.

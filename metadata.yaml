@@ -35,8 +35,10 @@ databases:
         description: Workout plans. Create and edit them on the Plans tab at /workouts?view=plans.
       plan_exercises:
         description: The exercises in each plan, in order, with target sets, reps and weight, all optional.
-      exercise_muscles:
-        description: The muscle group(s) each exercise trains, e.g. "Chest, Triceps". Set in the plan editor.
+      strava_activities:
+        description: Every activity from Strava (distance in metres, times in seconds), read by the Strava scraper. raw is each activity as Strava's page gave it.
+      strava_runs:
+        description: Your Strava runs, newest first. pace is seconds per km.
       plan_schedule:
         description: Which plan is on which day. day is a weekday (mon ... sun, every week) or a date (a one-off that wins over its weekday); an empty plan_id is a rest day.
   finance:
@@ -64,8 +66,6 @@ databases:
         description: Spent per month and category.
       months:
         description: One row per month with expenses - spent, the days anything was logged, the monthly budget and what's left of it.
-      daily_chart_categories:
-        description: The categories the Stats tab's "Spent per day" chart adds up. Pick them on that tab; empty means the daily budget's categories.
       month_settings:
         description: >-
           Months you decided yourself to count in averages (counted = 1) or leave out (0). Without a row

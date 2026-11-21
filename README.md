@@ -12,6 +12,7 @@ ALSO! fun fact, can connect ibkr and wise api directly to investments page. And 
 
 ## Table of contents
 
+- [What's in it](#whats-in-it)
 - [Install](#install)
   - [1. Requirements](#1-requirements)
   - [2. Datasette](#2-datasette)
@@ -19,7 +20,9 @@ ALSO! fun fact, can connect ibkr and wise api directly to investments page. And 
 - [Choose your features](#choose-your-features)
 - [Run it](#run-it)
 - [Settings](#settings)
+- [Strava](#strava)
 - [Commands](#commands)
+- [Credits](#credits)
 
 ![Home](docs/home.png)
 
@@ -34,6 +37,15 @@ ALSO! fun fact, can connect ibkr and wise api directly to investments page. And 
 | Finance | Settings |
 |---|---|
 | ![Finance stats](docs/finance.png) | ![Settings](docs/settings.png) |
+
+## What's in it
+
+- **Home**: today's date, a quote of the day, today's HSK words, your workout streaks and today's plan, what's left of today's budget, and your next Work tasks.
+- **HSK**: Chinese words in three lists (to learn, to revise, learnt). Learnt words come back to revise after a week by themselves.
+- **Workouts**: log sets (several at once, or a whole plan in one go), make plans with their own icons and put them on days of the week. Stats has a month calendar with your plan icons, a shoe on run days and your week streak, which days you train most, and your running from Strava. History lists every workout and every run. Any list (a plan's exercises, a day's log) reorders by dragging the dash handle on the right of each row.
+- **Finance**: expenses against a daily and a monthly budget (with a pie of where it went), savings balances by month, and your investments (read from Interactive Brokers and Wise if you connect them).
+- **Work**: deadlines and tasks per course, with priorities; with `elearn` installed also an Announcements tab that reads Sunway University's eLearn and Outlook.
+- **Quotes** and **Thoughts**: little notebooks with tags.
 
 ## Install
 
@@ -74,7 +86,7 @@ ln -s "$PWD/bin/skyydb" ~/.local/bin/skyydb   # any folder on your PATH works
 
 ## Choose your features
 
-The features are `chinese` (the HSK page), `workouts`, `finance`, `work`, `quotes` and `thoughts`. Install just the ones you want:
+The features are `chinese` (the HSK page), `workouts`, `finance`, `work`, `elearn` (Work's Announcements tab, for Sunway University students), `quotes` and `thoughts`. Install just the ones you want:
 
 ```bash
 skyydb install finance workouts chinese
@@ -93,14 +105,19 @@ Each page has a plain address: `/hsk`, `/workouts`, `/finance`, `/quotes`, `/tho
 
 ## Settings
 
-**Settings** (top right) is where you:
+**Settings** (top right) is behind a password: the first time, it asks you to set one. It's where you:
 
-- **rename pages** (the menu, their headings and Home use the new names) and **hide** them from the menu;
+- **rename pages** (the menu, their headings and Home use the new names), give them an **icon** (a searchable picker of pixel icons) and **hide** them from the menu;
+- **order the menu**: drag a page by the dash handle on its row (or drag the names in the top menu itself);
 - **lock pages** with a password: a locked page shows blurred in the menu, its raw data is locked too, and on Home its widget is a blank card with a lock. Opening any of them (or **Unlock** in the top right) asks for the password in a popup, and typing it once unlocks every locked page. They stay open for a few minutes after you last used the app (you choose how many); **Lock** in the top right locks them again, and so does restarting the app;
 - **choose Home's widgets**, switching each on or off;
 - **browse the raw data**: every database, opening Datasette's own pages (at `/<database>-db`) where you can see and edit every row.
 
 Settings are kept in `settings.json` in this folder (out of git; the password is stored only as a scrypt hash).
+
+## Strava
+
+Workouts can read every activity you've logged on Strava: your running shows on its Stats tab (totals on top, a shoe on run days in the calendar, distance per week), every run is listed on History, and a run counts towards your streaks. A small scraper signs in to strava.com as you and reads your "My Activities" list (every activity, private ones too); it needs Playwright and Chromium. Paste your profile link on **Workouts → Settings** and press **Sign in to Strava**: a browser window opens, you sign in, and it reads everything. After that, opening Stats (or **Sync now**, or `skyydb strava`) adds what's new. Scraping is against Strava's terms, so it reads only your own account, slowly.
 
 ## Commands
 
@@ -112,5 +129,16 @@ Settings are kept in `settings.json` in this folder (out of git; the password is
 | `skyydb status` | Shows whether it's running and a summary of your data |
 | `skyydb import FILE` | Imports Chinese words from a CSV, or finance data from Google Sheets exports |
 | `skyydb backup` | Copies the databases into `backups/` (also done once a day, keeping 14) |
+| `skyydb strava [all\|login]` | Reads your new Strava activities (`all`: every one again; `login`: sign in first) |
 | `skyydb restart` / `skyydb stop` | Restarts or stops the app (restart after editing `plugins/app.py`) |
 | `skyydb autostart` | Starts the app at login (`skyydb autostart off` undoes it) |
+
+## Credits
+
+Bundled in `static/fonts/`, each with its licence:
+
+- [Pixicons](https://www.pixicons.io) (MIT): the pixel icons for pages and plans
+- [HackerNoon Pixel Icon Library](https://github.com/hackernoon/pixel-icon-library) (MIT): more pixel icons
+- [Cozette](https://github.com/slavfox/Cozette) (MIT): the app's small glyphs (lock, cog, tick)
+
+Quotes come from [ZenQuotes](https://zenquotes.io), share prices from Yahoo Finance.

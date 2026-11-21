@@ -44,7 +44,8 @@ END;
 CREATE TABLE IF NOT EXISTS plans (
     id    INTEGER PRIMARY KEY,
     name  TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (trim(name) <> ''),
-    notes TEXT NOT NULL DEFAULT ''
+    notes TEXT NOT NULL DEFAULT '',
+    icon  TEXT NOT NULL DEFAULT ''  -- a pixel icon's name (static/fonts/pixelarticons), shown on the Stats calendar
 );
 CREATE TABLE IF NOT EXISTS plan_exercises (
     id       INTEGER PRIMARY KEY,
@@ -58,11 +59,16 @@ CREATE TABLE IF NOT EXISTS plan_exercises (
 );
 CREATE INDEX IF NOT EXISTS plan_exercises_plan ON plan_exercises (plan_id, position);
 
--- The muscle group(s) each exercise trains ("Chest" or "Chest, Triceps"), set in
--- the plan editor. It belongs to the exercise, so every plan shows the same.
-CREATE TABLE IF NOT EXISTS exercise_muscles (
-    exercise     TEXT PRIMARY KEY COLLATE NOCASE REFERENCES exercises (name),
-    muscle_group TEXT NOT NULL CHECK (trim(muscle_group) <> '')
+-- Exercises used to have muscle groups (removed 2026-11-21)
+DROP TABLE IF EXISTS exercise_muscles;
+
+-- The order you dragged a day's exercises into on the Log tab. Exercises not in here (logged
+-- after the last drag) come after, in the order they were first logged.
+CREATE TABLE IF NOT EXISTS day_order (
+    date     TEXT NOT NULL,
+    exercise TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    PRIMARY KEY (date, exercise)
 );
 
 -- Which plan is on which day: a weekday ("mon" ... "sun") repeats every week, a
@@ -134,3 +140,34 @@ SELECT exercise,
 FROM sets s
 GROUP BY exercise
 ORDER BY last_done DESC;
+
+-- Workouts' own settings, like your Strava profile and how the last sync went
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '');
+
+-- Strava: every activity you've logged there, read by the Strava scraper (strava.py, which
+-- signs in as you; Workouts > Settings starts it). A sync adds new ones and updates the
+-- latest; raw keeps each activity as Strava's page gave it.
+CREATE TABLE IF NOT EXISTS strava_activities (
+    id           INTEGER PRIMARY KEY,           -- Strava's activity id
+    name         TEXT NOT NULL DEFAULT '',
+    sport        TEXT NOT NULL DEFAULT '',      -- Run, TrailRun, Ride, Walk, WeightTraining, ...
+    start        TEXT NOT NULL,                 -- local start time, 'YYYY-MM-DD HH:MM:SS'
+    distance     REAL NOT NULL DEFAULT 0,       -- metres
+    moving_time  INTEGER NOT NULL DEFAULT 0,    -- seconds
+    elapsed_time INTEGER NOT NULL DEFAULT 0,    -- seconds
+    elevation    REAL NOT NULL DEFAULT 0,       -- metres climbed
+    avg_hr       REAL,
+    max_hr       REAL,
+    raw          TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS strava_start ON strava_activities (start);
+
+-- Runs from Strava, newest first, with the pace in seconds per km
+DROP VIEW IF EXISTS strava_runs;
+CREATE VIEW strava_runs AS
+SELECT id, date(start) AS date, name, round(distance / 1000.0, 2) AS km, moving_time,
+       CASE WHEN distance > 0 THEN round(moving_time / (distance / 1000.0)) END AS pace,
+       elevation, avg_hr
+FROM strava_activities
+WHERE sport IN ('Run', 'TrailRun', 'VirtualRun')
+ORDER BY start DESC;

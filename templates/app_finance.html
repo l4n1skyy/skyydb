@@ -30,7 +30,7 @@
       <a href="?view=budget"{% if view == "budget" %} aria-current="page"{% endif %}>Budget</a>
       <a href="?view=savings"{% if view == "savings" %} aria-current="page"{% endif %}>Savings</a>
       <a href="?view=investments"{% if view == "investments" %} aria-current="page"{% endif %}>Investments</a>
-      <a href="?view=stats"{% if view == "stats" %} aria-current="page"{% endif %}>Stats</a>
+      <a href="?view=stats"{% if view == "stats" %} aria-current="page"{% endif %}>Expenses</a>
     </div>
     <p class="refresh-status muted small-print" data-refresh-status role="status"></p>
     <div class="tab-group">
@@ -52,12 +52,13 @@
     <input type="hidden" name="action" value="rename">
     <div class="table-scroll">
     <table>
-      <thead><tr><th>Category</th><th class="n">Expenses</th><th class="n">Budget lines</th><th></th></tr></thead>
+      <thead><tr><th>Category</th><th class="flag-col" title="Counts in daily spending (Spent per day)">Daily</th><th class="flag-col" title="Counts in monthly spending (the month's totals and the Budget tab)">Monthly</th><th></th></tr></thead>
       <tbody>
       {% for c in category_rows %}
       <tr>
         <td><span class="cat-name">{{ c.name }}</span><input class="cat-edit" name="new_{{ loop.index0 }}" value="{{ c.name }}" required hidden><input type="hidden" name="old_{{ loop.index0 }}" value="{{ c.name }}"></td>
-        <td class="n">{{ c.expenses }}</td><td class="n">{{ c.budgets }}</td>
+        <td class="flag-col"><input type="checkbox" data-cat-flag="daily" data-category="{{ c.name }}"{% if c.daily %} checked{% endif %} aria-label="{{ c.name }} counts in daily spending"></td>
+        <td class="flag-col"><input type="checkbox" data-cat-flag="monthly" data-category="{{ c.name }}"{% if c.monthly %} checked{% endif %} aria-label="{{ c.name }} counts in monthly spending"></td>
         <td>{% if not c.expenses %}<button class="icon danger" name="delete" value="{{ c.name }}" formnovalidate title="Delete this category">delete</button>{% endif %}</td>
       </tr>
       {% endfor %}
@@ -70,7 +71,16 @@
       <button type="button" class="btn small ghost" id="cat-cancel-btn" hidden>Cancel</button>
     </div>
   </form>
-  <p class="muted small-print">Renaming a category to one that already exists merges them: its expenses and budget lines move over. A category with expenses can't be deleted, only merged into another.</p>
+</section>
+<section class="panel connections">
+  <h2>Connections</h2>
+    <form class="form-grid ibkr-form" method="post" action="/finance/ibkr" autocomplete="off">
+      <label>IBKR Flex token <input type="password" name="token" placeholder="{{ 'saved; paste a new one to change it' if ibkr.token else 'from Flex Web Service Configuration' }}"></label>
+      <label>Query ID <input name="query" value="{{ ibkr.query }}" inputmode="numeric" placeholder="the number next to the query"></label>
+      <label class="wide">Wise API token <input type="password" name="wise_token" placeholder="{{ 'saved; paste a new one to change it' if wise.token else 'read-only, from Wise → Settings → API tokens' }}"></label>
+      <div class="wide actions"><button class="btn small primary">Save</button></div>
+    </form>
+    <p class="muted small-print">IBKR: an Activity Flex Query (Trades, Cash Transactions, Open Positions, Cash Report; XML, dates as yyyyMMdd) and a Flex Web Service token, both from Performance &amp; Reports → Flex Queries. Wise: a read-only personal API token. Both tokens only read, and stay in finance.db on this computer.</p>
 </section>
 <script>
 (function () {
@@ -159,7 +169,6 @@
   <a class="btn small ghost{% if not prev_month %} disabled{% endif %}" {% if prev_month %}href="?view=budget&amp;month={{ prev_month }}"{% endif %} title="Previous month">‹</a>
   <h2>{{ month|month_name }}</h2>
   <a class="btn small ghost{% if not next_month %} disabled{% endif %}" {% if next_month %}href="?view=budget&amp;month={{ next_month }}"{% endif %} title="Next month">›</a>
-  {% if record %}{{ month_status(record, "budget") }}{% endif %}
   <span class="spacer"></span>
   {% if month != today[:7] %}<a class="btn small" href="?view=budget">This month</a>{% endif %}
 </div>
@@ -177,8 +186,44 @@
   {% endif %}
 </div>
 
-<div class="main-col budget-main">
-  <section class="panel">
+<div class="budget-layout">
+  <div class="budget-left">
+  {# Your budget, in two cards: every day and every month. One form, so either Save keeps both. #}
+  <form class="budget-editor" method="post" action="/finance/budget" autocomplete="off">
+    <input type="hidden" name="month" value="{{ month }}">
+    <div class="budget-editor-cols">
+      {% for period, prefix, label in [("daily", "d", "Daily budget"), ("monthly", "m", "Monthly budget")] %}
+      <section class="panel budget-edit">
+        <h2>{{ label }} <span class="muted" data-total>{{ lines[period]|sum(attribute="amount")|money }}</span></h2>
+        <table class="plan-rows">
+          <thead><tr><th>Category</th><th>Amount (RM)</th><th></th></tr></thead>
+          <tbody>
+          {% for l in lines[period] + [none] %}
+            <tr>
+              <td><input name="{{ prefix }}_category" list="category-list" value="{{ l.category if l else '' }}" aria-label="Category"></td>
+              <td><input name="{{ prefix }}_amount" type="number" min="0" step="0.01" value="{{ l.amount|plain if l else '' }}" class="narrow" aria-label="Amount in RM"></td>
+              <td class="row-tools"><button type="button" class="icon danger" data-remove title="Remove this line">remove</button></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        <div class="actions">
+          <button type="button" class="btn small" data-add-row>+ Add a line</button>
+          <span class="spacer"></span>
+          <button class="btn primary">Save budget</button>
+        </div>
+      </section>
+      {% endfor %}
+    </div>
+  </form>
+  </div>
+  <div class="budget-right">
+  {# Where the month's money went: the pie, its legend gives every part's name, amount and share #}
+  <section class="panel pie-panel">
+    <h2>Where it went</h2>
+    {% if pie_chart %}{{ pie_chart }}{% else %}<p class="empty">Nothing spent this month yet.</p>{% endif %}
+  </section>
+  <section class="panel bycat-panel">
     <h2>By category</h2>
     {% if by_category %}
     <div class="table-scroll">
@@ -201,38 +246,9 @@
       </tfoot>
     </table>
     </div>
-    {% else %}<p class="empty">No budget yet, and nothing spent this month. Set a budget below.</p>{% endif %}
+    {% else %}<p class="empty">No budget yet, and nothing spent this month. Set a budget on the left.</p>{% endif %}
   </section>
-
-  <form class="panel budget-editor" method="post" action="/finance/budget" autocomplete="off">
-    <h2>Your budget</h2>
-    <p class="muted small-print">The <b>daily</b> budget is what you plan to spend each day in those categories; the Log tab shows how much of it is left that day. The <b>monthly</b> budget covers the whole month. Empty rows are ignored.</p>
-    <input type="hidden" name="month" value="{{ month }}">
-    <div class="budget-editor-cols">
-      {% for period, prefix, label in [("daily", "d", "Every day"), ("monthly", "m", "Every month")] %}
-      <div class="budget-edit">
-        <h3>{{ label }} <span class="muted" data-total>{{ lines[period]|sum(attribute="amount")|money }}</span></h3>
-        <table class="plan-rows">
-          <thead><tr><th>Category</th><th>Amount (RM)</th><th></th></tr></thead>
-          <tbody>
-          {% for l in lines[period] + [none] %}
-            <tr>
-              <td><input name="{{ prefix }}_category" list="category-list" value="{{ l.category if l else '' }}" aria-label="Category"></td>
-              <td><input name="{{ prefix }}_amount" type="number" min="0" step="0.01" value="{{ l.amount|plain if l else '' }}" class="narrow" aria-label="Amount in RM"></td>
-              <td class="row-tools"><button type="button" class="icon danger" data-remove title="Remove this line">remove</button></td>
-            </tr>
-          {% endfor %}
-          </tbody>
-        </table>
-        <button type="button" class="btn small" data-add-row>+ Add a line</button>
-      </div>
-      {% endfor %}
-    </div>
-    <div class="actions">
-      <span class="spacer"></span>
-      <button class="btn primary">Save budget</button>
-    </div>
-  </form>
+  </div>
 </div>
 
 
@@ -263,7 +279,6 @@
   <div class="side-col">
     <form class="panel log-form" method="post" action="/finance/balances" autocomplete="off">
       <h2>Month-end balances</h2>
-      <p class="muted small-print">Once a month, as it ends: what's in each account. Change what moved and save; the ones that didn't move are saved too, so the month counts as recorded. Shares aren't an account here: their value comes from your trades and their prices.</p>
       <label>Date <input type="text" name="date" value="{{ checkin_date }}" required inputmode="numeric" placeholder="DD/MM/YYYY" pattern="\d{2}/\d{2}/\d{4}" data-date-input></label>
       {% for b in latest %}
       <label>{{ b.account }}
@@ -309,18 +324,7 @@
 {% elif view == "investments" %}
 {% include "app_finance_live.html" %}
 
-<section class="panel connections">
-  <details class="table-view"{% if not (ibkr.token and ibkr.query) %} open{% endif %}><summary>Connections</summary>
-    <form class="form-grid ibkr-form" method="post" action="/finance/ibkr" autocomplete="off">
-      <label>IBKR Flex token <input type="password" name="token" placeholder="{{ 'saved; paste a new one to change it' if ibkr.token else 'from Flex Web Service Configuration' }}"></label>
-      <label>Query ID <input name="query" value="{{ ibkr.query }}" inputmode="numeric" placeholder="the number next to the query"></label>
-      <label class="wide">Wise API token <input type="password" name="wise_token" placeholder="{{ 'saved; paste a new one to change it' if wise.token else 'read-only, from Wise → Settings → API tokens' }}"></label>
-      <div class="wide actions"><button class="btn small primary">Save</button></div>
-    </form>
-    <p class="muted small-print">IBKR: an Activity Flex Query (Trades, Cash Transactions, Open Positions, Cash Report; XML, dates as yyyyMMdd) and a Flex Web Service token, both from Performance &amp; Reports → Flex Queries. Wise: a read-only personal API token. Both tokens only read, and stay in finance.db on this computer.</p>
-    <p class="muted small-print">Each time you open Finance (unless it already did in the last 5 minutes) the app fetches prices from Yahoo Finance, IBKR's statement and Wise's statements, and nothing in between. It adds new trades, deposits and transfers, corrects any the app has that IBKR or Wise says differently, and adds the day's prices. It never deletes anything, and doesn't keep the statements themselves, only the trades, deposits, transfers and prices from them.</p>
-  </details>
-</section>
+
 
 {% else %}
 <div class="month-nav">
@@ -331,7 +335,6 @@
       <option value="all"{% if pick == "all" %} selected{% endif %}>All time</option>
     </select>
   </form>
-  {% if record is defined %}{{ month_status(record, "stats") }}{% endif %}
 </div>
 
 <div class="tiles stats-tiles">
@@ -346,7 +349,7 @@
   {% if left is not none %}<div class="tile{{ ' over' if left < 0 }}"><span class="tile-label">{{ "Over budget" if left < 0 else "Left of budget" }}</span><span class="tile-value money">{{ left|abs|money }}</span>
     <span class="tile-note">of {{ budget|money }}</span></div>{% endif %}
   <div class="tile"><span class="tile-label">Average day</span><span class="tile-value money">{{ average_day|money }}</span>
-    <span class="tile-note">{{ daily_picked|join(", ") if daily_picked else "everything" }} · over {{ day_count }} days, {{ spent_days }} with spending</span></div>
+</div>
   {% if ahead %}<div class="tile{{ ' over' if budget is not none and ahead > budget }}"><span class="tile-label">On pace for</span><span class="tile-value money">{{ ahead|money }}</span>
     <span class="tile-note">by the end of the month</span></div>{% endif %}
   {% endif %}
@@ -358,20 +361,6 @@
   <section class="panel wide">
     <header class="chart-head">
       <h2>Spent per day <span class="muted">{{ daily_picked|join(", ") if daily_picked else "everything" }}</span></h2>
-      <details class="pick-categories">
-        <summary class="btn small ghost">Categories</summary>
-        <form class="pick-form" method="post" action="/finance/daily-categories">
-          <input type="hidden" name="month" value="{{ pick }}">
-          <p class="muted small-print">The categories this chart adds up.{% if not daily_chosen %} Now: the daily budget's.{% endif %}</p>
-          <div class="pick-list">
-          {% for c in categories %}<label class="check"><input type="checkbox" name="category" value="{{ c }}"{% if c.lower() in daily_picked_lower %} checked{% endif %}> {{ c }}</label>{% endfor %}
-          </div>
-          <div class="actions">
-            <button class="btn small primary">Show these</button>
-            {% if daily_chosen %}<button class="btn small ghost" name="reset" value="1">Use the daily budget's</button>{% endif %}
-          </div>
-        </form>
-      </details>
     </header>
     {{ daily_chart }}
     <details class="table-view"><summary>Table</summary>

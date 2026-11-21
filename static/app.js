@@ -43,6 +43,59 @@ document.addEventListener("focusin", (e) => {
 document.addEventListener("focusout", () => (tip.hidden = true));
 
 
+// --- Drag to reorder: a list's rows (its direct children) move by the .drag-handle in them,
+// with the mouse or touch, or with the up / down arrow keys while the handle has focus.
+// done() runs once a row has landed somewhere new.
+
+function sortable(list, done) {
+  let dragged = null, from = -1;
+  const rowOf = (el) => { while (el && el.parentElement !== list) el = el.parentElement; return el; };
+  const index = (row) => [...list.children].indexOf(row);
+  list.addEventListener("pointerdown", (e) => {
+    const handle = e.target.closest(".drag-handle");
+    if (handle && list.contains(handle)) rowOf(handle).draggable = true;
+  });
+  list.addEventListener("pointerup", () => { for (const r of list.children) if (r !== dragged) r.draggable = false; });
+  list.addEventListener("dragstart", (e) => {
+    if (e.target.parentElement !== list) return;
+    dragged = e.target;
+    from = index(dragged);
+    dragged.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", "");
+  });
+  list.addEventListener("dragover", (e) => {
+    if (!dragged) return;
+    e.preventDefault();
+    const after = [...list.children].filter((r) => r !== dragged).find((r) => {
+      const box = r.getBoundingClientRect();
+      return e.clientY < box.top + box.height / 2;
+    });
+    if (after) list.insertBefore(dragged, after); else list.appendChild(dragged);
+  });
+  list.addEventListener("drop", (e) => e.preventDefault());
+  list.addEventListener("dragend", () => {
+    if (!dragged) return;
+    dragged.classList.remove("dragging");
+    dragged.draggable = false;
+    const moved = index(dragged) !== from;
+    dragged = null;
+    if (moved && done) done();
+  });
+  list.addEventListener("keydown", (e) => {
+    const handle = e.target.closest?.(".drag-handle");
+    if (!handle || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    e.preventDefault();
+    const row = rowOf(handle);
+    const other = e.key === "ArrowUp" ? row.previousElementSibling : row.nextElementSibling;
+    if (!other) return;
+    if (e.key === "ArrowUp") other.before(row); else other.after(row);
+    handle.focus();
+    if (done) done();
+  });
+}
+
+
 // --- Everything that belongs to one page: runs on load and after each page swap ---------
 
 function initPage() {
@@ -66,7 +119,7 @@ function initPage() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "date-picker-button";
-    button.textContent = "\uf073";
+    button.textContent = "\uf073";  // Cozette's calendar
     button.setAttribute("aria-label", "Choose date");
     button.addEventListener("click", () => picker.showPicker ? picker.showPicker() : picker.click());
     picker.addEventListener("change", () => {
@@ -119,6 +172,162 @@ function initPage() {
       dragged?.classList.remove("dragging");
       dragged = null;
       try { localStorage.setItem(key, JSON.stringify(tabs().map(id))); } catch {}
+    });
+  }
+
+  // --- Pixel-icon pickers: the first time one opens, it gets every icon there is (see iconChoices)
+
+  for (const picker of $$(".icon-picker")) {
+    const field = $("input[type=hidden]", picker), grid = $(".icon-grid", picker), summary = $("summary", picker);
+    picker.addEventListener("toggle", async () => {
+      if (!picker.open || grid.childElementCount) return;
+      grid.innerHTML = await iconChoices(picker.dataset.suggested.split(" ").filter(Boolean), field.value);
+      const search = $("input[type=search]", grid);
+      search.focus();
+      search.addEventListener("input", () => {
+        const q = search.value.trim().toLowerCase();
+        for (const b of $$(".icon-choice", grid)) b.hidden = q && !b.dataset.icon.includes(q);
+        for (const h of $$(".icon-group", grid)) {
+          let el = h.nextElementSibling, any = false;
+          for (; el && !el.classList.contains("icon-group"); el = el.nextElementSibling) any ||= !el.hidden;
+          h.hidden = !any;
+        }
+      });
+    });
+    grid.addEventListener("click", (e) => {
+      const b = e.target.closest(".icon-choice");
+      if (!b) return;
+      field.value = b.dataset.icon;
+      $$(".icon-choice[aria-pressed=true]", grid).forEach((x) => x.setAttribute("aria-pressed", "false"));
+      b.setAttribute("aria-pressed", "true");
+      summary.innerHTML = b.dataset.icon ? b.innerHTML : '<span class="icon-none" aria-hidden="true">+</span>';
+      picker.open = false;
+    });
+  }
+
+  // --- Settings > Pages: "edit" turns a page's name into a box; the handle drags a row up or down
+
+  for (const button of $$("[data-edit-name]")) {
+    button.addEventListener("click", () => {
+      const cell = $(".name-cell", button.closest("tr")), input = $("input", cell);
+      $(".name-view", cell).hidden = true;
+      button.hidden = true;
+      input.hidden = false;
+      input.focus();
+      input.select();
+    });
+  }
+
+  // --- Lists you reorder by the dash handle on each row's right (Settings > Pages, plan cards,
+  // the plan editor, a day's exercises on the Log tab). The new order saves right away where
+  // there's nothing else to save (plan cards, the Log); Settings and the editor save with the form.
+
+  const saveOrder = {
+    plan: (list) => new URLSearchParams([["id", list.dataset.plan], ...$$("tr", list).map((r) => ["row", r.dataset.id])]),
+    day: (list) => new URLSearchParams([["date", list.dataset.day], ...$$(".exercise", list).map((x) => ["exercise", x.dataset.exercise])]),
+  };
+  const saveUrl = { plan: "/workouts/plan/order", day: "/workouts/day/order" };
+  for (const list of $$("[data-sortable]")) {
+    const kind = list.dataset.sortable;
+    sortable(list, saveOrder[kind] && (async () => {
+      try {
+        const res = await fetch(saveUrl[kind], { method: "POST", body: saveOrder[kind](list) });
+        if (!res.ok) throw new Error();
+      } catch {
+        alert("Couldn't save the new order. Reload the page to see what's saved.");
+      }
+    }));
+  }
+
+  // --- Strava: opening Stats starts a sync when the last one is a while ago; the page asks how the
+  // scraper is doing every few seconds and shows the new runs (or Settings' new status) when it's done
+
+  const stravaWatch = async (el, startCount) => {
+    for (let i = 0; i < 400 && el.isConnected; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        const s = await (await fetch("/workouts/strava/status")).json();
+        if (!s.running) {
+          if ((startCount === null || s.count !== startCount) && el.isConnected) {
+            fetched.clear();
+            go(location.pathname + location.search, false);
+          }
+          return;
+        }
+      } catch { return; }
+    }
+  };
+  const stravaSync = $("[data-strava-sync]");
+  if (stravaSync) {
+    (async () => {
+      try {
+        const res = await fetch("/workouts/strava/sync", {
+          method: "POST", headers: { Accept: "application/json" }, body: new URLSearchParams({ when: "stale" }),
+        });
+        const result = await res.json();
+        if (result.started || result.running) stravaWatch(stravaSync, result.count);
+      } catch {}
+    })();
+  }
+  const stravaStatus = $("[data-strava-status][data-running]");
+  if (stravaStatus) stravaWatch(stravaStatus, null);
+
+  // --- Stats > Distance per week: pointing anywhere over a week (or tabbing to its ring) shows
+  // that week's distance, time and climb on top; it stays chosen until you point at another
+
+  for (const chart of $$(".wk-chart")) {
+    const weeks = JSON.parse(chart.dataset.weeks);
+    const pts = $$(".wk-pt", chart), rule = $(".wk-rule", chart), plot = $(".wk-plot", chart);
+    const pick = (pt) => {
+      if (pt.classList.contains("on")) return;
+      const w = weeks[+pt.dataset.i];
+      $(".wk-span", chart).textContent = w.span;
+      for (const b of $$("[data-k]", chart)) b.textContent = w[b.dataset.k];
+      pts.forEach((p) => p.classList.toggle("on", p === pt));
+      rule.style.left = pt.style.left;
+      rule.style.top = pt.style.top;
+    };
+    plot.addEventListener("pointermove", (e) => {
+      const box = plot.getBoundingClientRect();
+      const i = Math.round(((e.clientX - box.left) / box.width) * (pts.length - 1));
+      pick(pts[Math.max(0, Math.min(pts.length - 1, i))]);
+    });
+    for (const pt of pts) pt.addEventListener("focus", () => pick(pt));
+  }
+
+  // --- Finance > Settings: a category's Daily / Monthly ticks save as soon as they change
+
+  for (const box of $$("[data-cat-flag]")) {
+    box.addEventListener("change", async () => {
+      try {
+        const res = await fetch("/finance/category/flags", {
+          method: "POST", body: new URLSearchParams({ category: box.dataset.category, flag: box.dataset.catFlag, on: box.checked ? "1" : "0" }),
+        });
+        if (!res.ok) throw new Error();
+      } catch {
+        box.checked = !box.checked;
+      }
+    });
+  }
+
+  // A button that asks first (Remove password)
+  for (const button of $$("[data-confirm-click]")) {
+    button.addEventListener("click", (e) => {
+      if (!confirm(button.dataset.confirmClick)) e.preventDefault();
+    });
+  }
+
+  // --- Workouts > Plans: a day in Coming up opens a popup to give that date its own plan
+
+  const dayDialog = $("#day-plan-dialog");
+  for (const card of $$(".day-card")) {
+    card.addEventListener("click", () => {
+      const form = $("form", dayDialog);
+      form.elements.date.value = card.dataset.day;
+      $("[data-day-label]", dayDialog).textContent = card.dataset.label;
+      form.elements.plan.value = card.dataset.plan;
+      dayDialog.showModal();
+      form.elements.plan.focus();
     });
   }
 
@@ -340,14 +549,6 @@ function initPage() {
 
   if (planRows) {
     const clear = (row) => $$("input", row).forEach((i) => (i.value = ""));
-    const muscles = JSON.parse($("#exercise-muscles").textContent);
-    // Picking an exercise you've used before fills in its muscle group
-    planRows.addEventListener("change", (e) => {
-      if (e.target.name !== "exercise") return;
-      const muscle = e.target.closest("tr").querySelector("[name=muscle]");
-      const known = muscles[e.target.value.trim().toLowerCase()];
-      if (known && !muscle.value) muscle.value = known;
-    });
     $("#add-row").addEventListener("click", () => {
       const row = planRows.lastElementChild.cloneNode(true);
       clear(row);
@@ -361,10 +562,6 @@ function initPage() {
       if (button.hasAttribute("data-remove")) {
         if (planRows.children.length > 1) row.remove();
         else clear(row);
-      } else if (button.dataset.move === "-1" && row.previousElementSibling) {
-        row.previousElementSibling.before(row);
-      } else if (button.dataset.move === "1" && row.nextElementSibling) {
-        row.nextElementSibling.after(row);
       }
     });
   }
@@ -521,9 +718,50 @@ document.addEventListener("submit", async (e) => {
   }
 });
 
-// A click on the dimmed page around the popup closes it
+// --- Every pixel icon: Pixicons (11x11 bitmaps, drawn as SVG) and HackerNoon's (a font) -------
+
+let iconData = null;
+const loadIcons = () => (iconData ??= Promise.all([
+  "/static/fonts/pixicons/icons.json", "/static/fonts/pixicons/extra.json", "/static/fonts/hackernoon/icons.json",
+].map((u) => fetch(u).then((r) => r.json()))).then(([pixicons, extra, hackernoon]) => ({ pixicons: { ...pixicons, ...extra }, hackernoon })));
+
+// A Pixicon's 121 bits (11 rows, top left first) as an SVG path, one rectangle per run of set pixels
+function pixiconSvg(hex) {
+  const bits = BigInt("0x" + hex).toString(2).padStart(hex.length * 4, "0");
+  let d = "";
+  for (let y = 0; y < 11; y++) {
+    for (let x = 0; x < 11; ) {
+      if (bits[y * 11 + x] !== "1") { x++; continue; }
+      const s = x;
+      while (x < 11 && bits[y * 11 + x] === "1") x++;
+      d += `M${s} ${y}h${x - s}v1h-${x - s}z`;
+    }
+  }
+  return `<svg class="px pxi" viewBox="0 0 11 11" shape-rendering="crispEdges" aria-hidden="true"><path d="${d}" fill="currentColor"/></svg>`;
+}
+
+async function iconChoices(suggested, current) {
+  const { pixicons, hackernoon } = await loadIcons();
+  const draw = (name) => name.startsWith("pi:")
+    ? (pixicons[name.slice(3)] ? pixiconSvg(pixicons[name.slice(3)][1]) : "")
+    : (hackernoon[name] ? `<i class="px" aria-hidden="true">&#x${hackernoon[name]};</i>` : "");
+  const button = (name) => `<button type="button" class="icon-choice" data-icon="${name}" title="${name.replace(/^pi:/, "")}" aria-pressed="${name === current}">${draw(name)}</button>`;
+  const group = (title, names) => names.length ? `<p class="icon-group">${title} <span class="muted">${names.length}</span></p>` + names.map(button).join("") : "";
+  return `<input type="search" placeholder="Search ${Object.keys(pixicons).length + Object.keys(hackernoon).length} icons" aria-label="Search icons">`
+    + `<button type="button" class="icon-choice icon-clear" data-icon="" aria-pressed="${!current}">none</button>`
+    + group("Suggested", suggested)
+    + group("Pixicons", Object.keys(pixicons).sort().map((n) => "pi:" + n))
+    + group("HackerNoon", Object.keys(hackernoon).sort());
+}
+
+// An open icon picker closes when you click anywhere else
 document.addEventListener("click", (e) => {
-  const dialog = e.target.id === "unlock-dialog" ? e.target : null;
+  for (const open of $$(".icon-picker[open]")) if (!open.contains(e.target)) open.open = false;
+});
+
+// A click on the dimmed page around a popup closes it
+document.addEventListener("click", (e) => {
+  const dialog = e.target.matches?.("dialog.unlock-dialog") ? e.target : null;
   if (!dialog) return;
   const r = dialog.getBoundingClientRect();
   if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close();
@@ -568,7 +806,6 @@ async function go(href, push = true) {
     const nextNav = next.querySelector(".main-nav"), nextRight = next.querySelector(".top-right");
     if (nextNav) {
       $(".main-nav").replaceChildren(...[...nextNav.children].map((a) => document.importNode(a, true)));
-      window.applyNavOrder?.();
     }
     if (nextRight) $(".top-right")?.replaceWith(document.importNode(nextRight, true));
     if (push) history.pushState(null, "", final);

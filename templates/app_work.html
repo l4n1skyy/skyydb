@@ -11,7 +11,7 @@
       <a href="/work"{% if view == "tasks" %} aria-current="page"{% endif %}>Tasks <span class="count">{{ n_tasks }}</span></a>
       {% if 'elearn' in features %}<a href="?view=announcements"{% if view == "announcements" %} aria-current="page"{% endif %}>Announcements</a>{% endif %}
     </div>
-    {% if view == "announcements" %}<form class="an-refresh" method="post" action="/work/announcements/refresh"><button class="btn small primary"{% if an_running %} disabled{% endif %} title="Read eLearn (stream, announcements, grades) and Outlook again: about a minute">{{ "Refreshing…" if an_running else "↻ Refresh" }}</button></form>{% endif %}
+    {% if view == "announcements" %}<form class="an-refresh" method="post" action="/work/announcements/refresh"><span class="refresh-status muted small-print">Last read: {% for s in an_sync %}<span{% if s.error %} class="bad" title="{{ s.error }}"{% endif %}>{{ s.source }} {{ s.at[11:16] if s.at else 'never' }}{{ ' ⚠' if s.error }}</span>{{ ' · ' if not loop.last }}{% endfor %}</span><button class="btn small primary"{% if an_running %} disabled{% endif %} title="Read eLearn (stream, announcements, grades) and Outlook again: about a minute">{{ "Refreshing…" if an_running else "↻ Refresh" }}</button></form>{% endif %}
     <div class="tab-group">
       <a href="?view=add"{% if view == "add" %} aria-current="page"{% endif %}>+ Add a task</a>
       <a href="?view=settings"{% if view == "courses" %} aria-current="page"{% endif %}>Settings</a>
@@ -21,7 +21,7 @@
 
 {% if view == "tasks" %}
 {% if courses|length > 1 %}
-<nav class="chips tag-filter" aria-label="Show one course">
+<nav class="chips tag-filter centred" aria-label="Show one course">
   <a class="chip" href="/work"{% if not pick %} aria-current="true"{% endif %}>all</a>
   {% for c in courses if c.active %}<a class="chip" style="--c: {{ c.id|course_color }}" href="?course={{ c.id }}"{% if c.id == pick %} aria-current="true"{% endif %}>{{ c.name }} <span class="n">{{ c.tasks }}</span></a>{% endfor %}
 </nav>

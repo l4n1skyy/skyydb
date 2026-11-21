@@ -23,7 +23,7 @@ from bisect import bisect_right
 from datetime import date, datetime, timedelta, timezone
 from itertools import zip_longest
 from html import escape
-from math import ceil, floor, log10
+from math import ceil, cos, floor, log10, radians, sin
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode
 
@@ -38,8 +38,6 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 WEEKDAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
-MUSCLE_GROUPS = ("Chest", "Back", "Shoulders", "Biceps", "Triceps", "Forearms", "Core", "Quads",
-                 "Hamstrings", "Glutes", "Calves", "Legs", "Full body", "Cardio")
 _background = set()
 
 # Which features are installed: the words in the `features` file next to this folder's
@@ -134,6 +132,15 @@ def theme():
             "data": m["blue"],  # one-series charts (the share price)
             "spending": m["mauve"],  # the Stats tab's charts of what you spent
             "context": m["overlay0"],  # grey marks beside the data ("everything else")
+            # The Budget pie, in this order round the ring (the 4th touches the 3rd and the 1st):
+            # every pair that touches stays apart for every reader, colour blindness included
+            # (palette validator, adjacent pairs with the wrap: CVD ΔE 11.3, normal vision 15.2)
+            "pie-1": m["peach"],
+            "pie-2": m["blue"],
+            "pie-3": m["teal"],
+            "pie-4": m["mauve"],
+            "streak": m["peach"],  # the workout streak's flame and band
+            "run": m["peach"],  # running (Strava's orange, in Mocha)
         },
     }
 
@@ -190,7 +197,65 @@ WIDGETS = {
     "finance": dict(name="Today's budget", page="finance"),
     "work": dict(name="Urgent and high-priority tasks", page="work"),
 }
-DEFAULT_SETTINGS = {"names": {}, "hidden": [], "locked": [], "widgets_off": [], "password": "", "unlock_minutes": 10}
+DEFAULT_SETTINGS = {"names": {}, "icons": {}, "order": [], "hidden": [], "locked": [], "widgets_off": [], "password": "", "unlock_minutes": 10}
+
+# Pixel icons, by name: the HackerNoon Pixel Icon Library font (static/fonts/hackernoon, MIT),
+# and Pixicons (static/fonts/pixicons, MIT; 11x11 bitmaps, drawn here as SVG), named "pi:<name>".
+# (The small icons of the app itself, like the lock and the cog, come from Cozette's font.)
+PX = {name: chr(int(code, 16)) for name, code in
+      json.loads((ROOT / "static" / "fonts" / "hackernoon" / "icons.json").read_text()).items()}
+PIXICONS = {"pi:" + name: bits for source in ("icons.json", "extra.json")
+            for name, bits in json.loads((ROOT / "static" / "fonts" / "pixicons" / source).read_text()).items()}
+# The ones offered for pages and workout plans (any name works, "-solid" HackerNoon ones too)
+FITNESS_ICONS = ("pi:sneaker", "pi:shoe", "pi:barbell", "pi:dumbbell", "pi:rock", "pi:leg", "pi:flex", "pi:foot",
+                 "pi:bicycle", "pi:stationary-bike", "pi:mountains", "pi:stopwatch", "pi:medal", "pi:trophy", "pi:heart",
+                 "pi:fire", "pi:lightning")
+PAGE_ICONS = ("pi:cloud-lightning", "home", "translate", "book", "book-bookmark", "notebook", "bolt", "heart", "fire",
+              "trophy", "finance", "wallet", "coins", "coin", "dollar", "bank", "chart-line", "trending", "quote-left",
+              "comment-quote", "lightbulb", "briefcase", "graduation-cap", "calendar-alt", "clock", "check-circle", "star",
+              "moon", "sun", "seedlings", "music", "gaming", "crown", "flag", "pen", "robot", "globe", "laptop",
+              "headphones", "shop", "sparkles", "pi:barbell", "pi:sneaker", "pi:flex")
+PLAN_ICONS = FITNESS_ICONS + (
+    "bolt-solid", "fire-solid", "heart-solid", "trophy-solid", "star-solid", "crown-solid", "flag-solid",
+    "sun-solid", "moon-solid", "seedlings-solid", "music-solid", "user-solid", "users-solid", "globe-solid",
+    "bolt", "fire", "heart", "trophy", "star", "crown", "flag", "flag-checkered", "sun", "moon", "seedlings",
+    "sparkles", "music", "headphones", "clock", "check-circle", "octagon-check", "user", "users", "plane",
+    "location-pin", "gaming", "hockey-mask", "shapes", "lightbulb", "glasses", "life-hacking", "medical-house")
+PAGE_ICONS = tuple(i for i in PAGE_ICONS if i in PX or i in PIXICONS)
+PLAN_ICONS = tuple(i for i in PLAN_ICONS if i in PX or i in PIXICONS)
+
+
+def pixicon_svg(name, fill=True):
+    """A Pixicon as SVG: each row's runs of set pixels as rectangles, in the text's colour"""
+    bits = bin(int(PIXICONS[name][1 if fill else 0], 16))[2:].zfill(124)
+    runs = []
+    for y in range(11):
+        row, x = bits[y * 11:(y + 1) * 11], 0
+        while x < 11:
+            if row[x] == "1":
+                start = x
+                while x < 11 and row[x] == "1":
+                    x += 1
+                runs.append(f"M{start} {y}h{x - start}v1h-{x - start}z")
+            else:
+                x += 1
+    return f'<path d="{"".join(runs)}" fill="currentColor"/>'
+
+
+def icon_ok(name):
+    return name in PX or name in PIXICONS
+
+
+def px(name, cls=""):
+    """A pixel icon by name (nothing when there's no such icon)"""
+    if name in PIXICONS:
+        return Markup(f'<svg class="px pxi{" " + cls if cls else ""}" viewBox="0 0 11 11" shape-rendering="crispEdges" '
+                      f'aria-hidden="true">{pixicon_svg(name)}</svg>')
+    if name not in PX:
+        return Markup("")
+    return Markup(f'<i class="px{" " + cls if cls else ""}" aria-hidden="true">{escape(PX[name])}</i>')
+
+
 OPEN_COOKIE, OPEN_NAMESPACE = "skyydb_open", "skyydb-open"
 _settings = {}
 
@@ -217,6 +282,12 @@ def save_settings(data):
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     tmp.replace(SETTINGS_FILE)
     _settings.clear()
+
+
+def ordered_pages(s=None):
+    """PAGES in your menu order (Settings > Pages, or dragging the top menu); new pages go last"""
+    order = [k for k in (s or settings())["order"] if k in PAGES]
+    return [(k, PAGES[k]) for k in order + [k for k in PAGES if k not in order]]
 
 
 def page_installed(key):
@@ -305,10 +376,16 @@ def asgi_wrapper(datasette):
     password popup open (or, for anything that isn't a page, answer "locked") until unlocked."""
     def wrap(app):
         async def guard(scope, receive, send):
-            page = page_of(scope.get("path", "")) if scope["type"] == "http" else None
+            path = scope.get("path", "").lower() if scope["type"] == "http" else ""
+            page = page_of(path) if path else None
+            if path == "/settings" or path.startswith("/settings/"):
+                page = "settings"
             if page:
                 request = Request(scope, receive)
-                if page in locked_pages(datasette, request.cookies):
+                s = settings()
+                shut = (page == "settings" and s["password"] and unlocked_until(datasette, request.cookies) is None) \
+                    or page in locked_pages(datasette, request.cookies, s)
+                if shut:
                     if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
                         query = scope.get("query_string", b"").decode()
                         response = back("/", unlock=scope["path"] + (f"?{query}" if query else ""))
@@ -324,12 +401,12 @@ def asgi_wrapper(datasette):
 async def render(datasette, request, template, **context):
     s = settings()
     names, locked = page_names(s), locked_pages(datasette, request.cookies, s)
-    lock_on = bool(s["password"] and s["locked"])  # anything to lock at all
+    lock_on = bool(s["password"])  # Settings, and any locked page, are behind the password
     until = unlocked_until(datasette, request.cookies)
-    nav = [dict(key=k, name=names[k], url=p["url"], locked=k in locked)
-           for k, p in PAGES.items() if page_installed(k) and k not in s["hidden"]]
+    nav = [dict(key=k, name=names[k], url=p["url"], locked=k in locked, icon=s["icons"].get(k, ""))
+           for k, p in ordered_pages(s) if page_installed(k) and k not in s["hidden"]]
     context.update(features=FEATURES, theme=theme(), ui_font=UI_FONT, v=_asset_version(), logo_uri=_logo_uri(), msg=request.args.get("msg"),
-                   error=request.args.get("error"), names=names, nav=nav, locked=locked, lock_on=lock_on,
+                   error=request.args.get("error"), names=names, nav=nav, locked=locked, lock_on=lock_on, px=px,
                    any_open=lock_on and until is not None,
                    here=request.path + (f"?{request.query_string}" if request.query_string else ""))
     response = Response.html(await datasette.render_template(template, context, request=request))
@@ -415,6 +492,10 @@ def month_name(ym, short=False):
 def prepare_jinja2_environment(env):
     env.filters["nice_date"] = nice_date
     env.filters["days_ago"] = days_ago
+    env.globals["px"] = px  # pixel icons, in every template (macros too)
+    env.filters["pace"] = pace
+    env.filters["duration"] = duration
+    env.filters["ordinal_suffix"] = lambda n: "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
     env.filters["name_color"] = lambda name: UNI_COLOURS[int(hashlib.md5(str(name).encode()).hexdigest(), 16) % len(UNI_COLOURS)] if name else "var(--muted)"
     env.filters["course_color"] = lambda cid: UNI_COLOURS[(int(cid or 0) - 1) % len(UNI_COLOURS)] if cid else "var(--muted)"
     env.filters["short_due"] = short_due
@@ -476,6 +557,36 @@ def stacked_bars(items, names, fmt=num):
         )
     head = str(legend(names)) if len(names) > 1 else ""
     return Markup(head + '<div class="hbars">' + "".join(out) + "</div>")
+
+
+def pie(parts, fmt=num, keep=3):
+    """A pie of a whole split into parts [(label, value)], largest first. The three biggest get a
+    part each and the rest are one "Other", four colours (--pie-1..4) that stay apart for every
+    reader where slices touch, checked with the palette validator. Each slice has a tooltip; the
+    legend beside it gives every name, amount and share, so nothing rests on colour alone."""
+    parts = sorted(((l, v) for l, v in parts if v > 0), key=lambda p: -p[1])
+    total = sum(v for _, v in parts)
+    if not total:
+        return Markup("")
+    shown = parts if len(parts) <= keep + 1 else parts[:keep] + [("Other", sum(v for _, v in parts[keep:]))]
+    others = ", ".join(l for l, _ in parts[keep:]) if len(parts) > keep + 1 else ""
+    slices, keys, angle = [], [], -90.0
+    for i, (label, value) in enumerate(shown):
+        colour = f"var(--pie-{min(i, 3) + 1})"
+        share = value / total
+        tip = _tip(f"{fmt(value)} · {share:.0%}", f"{label}{' (' + others + ')' if label == 'Other' and others else ''}")
+        if share >= 0.9999:
+            slices.append(f'<circle cx="100" cy="100" r="92" fill="{colour}" {tip}/>')
+        else:
+            end = angle + 360 * share
+            (x1, y1), (x2, y2) = [(100 + 92 * cos(radians(a)), 100 + 92 * sin(radians(a))) for a in (angle, end)]
+            slices.append(f'<path d="M100,100 L{x1:.2f},{y1:.2f} A92,92 0 {1 if share > 0.5 else 0} 1 {x2:.2f},{y2:.2f} Z" '
+                          f'fill="{colour}" {tip}/>')
+            angle = end
+        keys.append(f'<li><i style="background:{colour}"></i><span class="pie-name">{escape(label)}</span>'
+                    f'<span class="pie-val">{fmt(value)}</span><span class="pie-share">{share:.0%}</span></li>')
+    return Markup(f'<div class="pie"><svg viewBox="0 0 200 200" role="img" aria-label="Spending by category">{"".join(slices)}</svg>'
+                  f'<ul class="pie-legend">{"".join(keys)}</ul></div>')
 
 
 def columns(points, names, unit="", fmt=num, target=None, target_label=""):
@@ -676,13 +787,14 @@ async def home(request, datasette):
         await sync(datasette)
         ctx["picks"] = await todays_words(zh, ctx["shuffle"])
     if show["workouts"] and wo:
-        ctx["streak"] = streaks({date.fromisoformat(r["date"]) for r in await rows(wo, "SELECT DISTINCT date FROM sets")})
+        lifted, ran = await workout_days(wo)
+        ctx["streak"] = streaks(set(lifted) | set(ran))
         today_iso = date.today().isoformat()
         plan = await plan_for_day(wo, today_iso)
         if plan:
-            ctx["today_plan"] = dict(name=plan["name"], muscles=", ".join(plan["muscles"]), n=len(plan["exercises"]), rest=False)
+            ctx["today_plan"] = dict(name=plan["name"], n=len(plan["exercises"]), rest=False)
         elif await is_rest_day(wo, today_iso):
-            ctx["today_plan"] = dict(name="Rest day", muscles="", n=0, rest=True)
+            ctx["today_plan"] = dict(name="Rest day", n=0, rest=True)
     if show["finance"] and fi:
         ctx["fin"] = await day_summary(fi, date.today().isoformat(), await budget_lines(fi))
     if show["work"] and un:
@@ -712,7 +824,7 @@ def stand_in(ctx, locked):
         ctx["streak"] = {"days": 0, "weeks": 0}
         if ctx.get("today_plan"):
             p = ctx["today_plan"]
-            ctx["today_plan"] = dict(name=blank(p["name"]), muscles=blank(p["muscles"]), n=p["n"], rest=p["rest"])
+            ctx["today_plan"] = dict(name=blank(p["name"]), n=p["n"], rest=p["rest"])
     if "finance" in locked and "fin" in ctx:
         budget = ctx["fin"]["daily_total"].get("budget")
         ctx["fin"] = {"daily_total": dict(budget=1 if budget else 0, spent=0, left=1, pct=0, over=False)}
@@ -721,6 +833,17 @@ def stand_in(ctx, locked):
     if "quotes" in locked and ctx.get("quote"):
         q = ctx["quote"]
         ctx["quote"] = dict(api=False, text=blank(q.get("text")), author=blank(", ".join(filter(None, [q.get("author"), q.get("source")]))))
+
+
+async def workout_days(wo):
+    """({date: [exercises logged]}, {date: [Strava runs]}): every day you trained, a run counting as
+    a workout too. Weeks are Monday to Sunday, so a streak runs on across month ends."""
+    lifted, ran = {}, {}
+    for r in await rows(wo, "SELECT DISTINCT date, exercise FROM sets ORDER BY date, exercise"):
+        lifted.setdefault(date.fromisoformat(r["date"]), []).append(r["exercise"])
+    for r in await rows(wo, "SELECT date, name, km FROM strava_runs ORDER BY date, id"):
+        ran.setdefault(date.fromisoformat(r["date"]), []).append(r)
+    return lifted, ran
 
 
 def streaks(days):
@@ -902,26 +1025,36 @@ def valid_date(value):
 async def workouts(request, datasette):
     wo = datasette.get_database("workouts")
     view = request.args.get("view")
-    if view not in ("log", "plans", "history", "stats"):
+    if view not in ("log", "plans", "history", "stats", "settings"):
         view = "log"
     day = valid_date(request.args.get("date")) or date.today().isoformat()
     ctx = dict(page="workouts", view=view, day=day, today=date.today().isoformat())
     if view == "log":
+        # The day's exercises in the order you dragged them into (day_order), the rest after, in the
+        # order they were first logged
         sets = await rows(wo, """
-            SELECT id, exercise, reps, weight, notes,
-                   ROW_NUMBER() OVER (PARTITION BY exercise ORDER BY id) AS set_no,
-                   min(id) OVER (PARTITION BY exercise) AS first_id
-            FROM sets WHERE date = :d ORDER BY first_id, id""", {"d": day})
+            SELECT s.* FROM (
+                SELECT id, exercise, reps, weight, notes,
+                       ROW_NUMBER() OVER (PARTITION BY exercise ORDER BY id) AS set_no,
+                       min(id) OVER (PARTITION BY exercise) AS first_id
+                FROM sets WHERE date = :d) s
+            LEFT JOIN day_order o ON o.date = :d AND o.exercise = s.exercise
+            ORDER BY o.position IS NULL, o.position, s.first_id, s.id""", {"d": day})
         groups = []
         for s in sets:
             if not groups or groups[-1]["exercise"] != s["exercise"]:
                 groups.append({"exercise": s["exercise"], "sets": []})
             groups[-1]["sets"].append(s)
+        plan_names = {r["name"].lower() for r in await rows(wo, "SELECT name FROM plans")}
         for g in groups:
             # Entries without reps ("Bouldering") are done, but aren't counted as sets
             g["counted"] = sum(s["reps"] is not None for s in g["sets"])
             g["reps"] = sum(s["reps"] or 0 for s in g["sets"])
             g["volume"] = sum((s["reps"] or 0) * s["weight"] for s in g["sets"])
+            # A whole plan logged as one entry ("Bouldering", "Leg Day") is just done: it gets no set
+            # row. Any other exercise lists its sets, even a single one.
+            g["whole_plan"] = (len(g["sets"]) == 1 and not g["sets"][0]["reps"]
+                               and g["exercise"].lower() in plan_names)
         last_per_exercise = await rows(wo, """
             SELECT s.exercise, s.reps, s.weight FROM sets s
             JOIN (SELECT exercise, max(id) AS id FROM sets GROUP BY exercise) m ON m.id = s.id
@@ -963,32 +1096,230 @@ async def workouts(request, datasette):
         ctx.update(await plans_page(wo, request.args.get("plan")))
     elif view == "history":
         ctx["history"] = await rows(wo, "SELECT * FROM workouts LIMIT 100")
+        ctx["runs"] = await rows(wo, "SELECT * FROM strava_runs")  # newest first
+    elif view == "settings":
+        ctx["strava"] = await strava_panel(wo)
     else:
-        ctx.update(await workout_stats(wo, request.args.get("exercise")))
+        ctx.update(await workout_stats(wo, request.args.get("month")))
+        ctx["running"] = await running_stats(wo)
+        ctx["strava_on"] = bool((await workout_settings(wo)).get("strava_synced"))
     return await render(datasette, request, "app_workouts.html", **ctx)
+
+
+# --- Strava: every activity you've logged there --------------------------------------------
+#
+# Read by a scraper that signs in to strava.com as you (~/Shared/03_AREAS/_AUTOMATION/strava,
+# strava.py; its browser keeps you signed in). Workouts > Settings takes your profile address,
+# opens the sign-in window and starts syncs; the scraper writes the activities into workouts.db
+# (strava_activities) and how it went into its settings table (strava_synced, strava_said, strava_error).
+
+STRAVA_PROJECT = Path.home() / "Shared/03_AREAS/_AUTOMATION/strava"
+STRAVA_PYTHON = Path.home() / ".local/share/venvs/strava/bin/python"
+STRAVA_GAP = timedelta(hours=1)  # opening Stats syncs again only after this long
+RUN_SPORTS = ("Run", "TrailRun", "VirtualRun")
+_strava = {}  # "proc": the scraper while it runs, "what": "login" or "sync"
+
+
+async def workout_settings(wo):
+    return {r["key"]: r["value"] for r in await rows(wo, "SELECT key, value FROM settings")}
+
+
+async def save_workout_settings(wo, **values):
+    await wo.execute_write_fn(lambda conn: conn.executemany(
+        "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+        [(k, "" if v is None else str(v)) for k, v in values.items()]))
+
+
+def strava_athlete_id(text):
+    """'https://www.strava.com/athletes/12345678' (or just the number) -> '12345678'"""
+    found = re.search(r"athletes/(\d+)", text or "") or re.fullmatch(r"\s*(\d+)\s*", text or "")
+    return found.group(1) if found else ""
+
+
+def strava_running():
+    proc = _strava.get("proc")
+    return bool(proc) and proc.poll() is None
+
+
+def strava_start(*args):
+    """Run strava.py in the background (login shows a browser window; sync doesn't)"""
+    if strava_running():
+        return "Strava is already busy."
+    if not STRAVA_PYTHON.exists():
+        return f"The Strava scraper isn't set up ({STRAVA_PYTHON} is missing); see {STRAVA_PROJECT}/README.md."
+    _strava["proc"] = subprocess.Popen([str(STRAVA_PYTHON), "-I", str(STRAVA_PROJECT / "strava.py"), *args], cwd=STRAVA_PROJECT,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    _strava["what"] = args[0]
+    return ""
+
+
+async def strava_save(request, datasette):
+    """Your Strava profile's address"""
+    if request.method != "POST":
+        return back("/workouts", view="settings")
+    form = await request.post_vars()
+    athlete = strava_athlete_id(form.get("profile", ""))
+    if form.get("profile", "").strip() and not athlete:
+        return back("/workouts", view="settings", error="That doesn't look like a Strava profile (strava.com/athletes/<number>).")
+    await save_workout_settings(datasette.get_database("workouts"), strava_profile=athlete)
+    return back("/workouts", view="settings", msg="Saved your Strava profile.")
+
+
+async def strava_login(request, datasette):
+    """Open Strava's sign-in in a browser window; once you're in, it reads everything"""
+    if request.method != "POST":
+        return back("/workouts", view="settings")
+    problem = strava_start("login")
+    return back("/workouts", view="settings", **({"error": problem} if problem else
+                {"msg": "A Strava window is open: sign in there. It closes by itself and reads your activities."}))
+
+
+async def strava_sync_route(request, datasette):
+    """Start a sync: a button, `skyydb strava`, or opening Stats (then only when the last one is a while ago)"""
+    if request.method != "POST":
+        return Response.text("POST only", status=405)
+    form = await request.post_vars()
+    wo = datasette.get_database("workouts")
+    s = await workout_settings(wo)
+    wants_json = "application/json" in request.headers.get("accept", "")
+    started, problem = False, ""
+    if form.get("when") == "stale" and s.get("strava_synced") and \
+            datetime.now() - datetime.strptime(s["strava_synced"], "%Y-%m-%d %H:%M") < STRAVA_GAP:
+        pass
+    elif form.get("when") == "stale" and not s.get("strava_synced"):
+        pass  # never signed in yet: nothing to do by itself
+    else:
+        problem = strava_start("sync", *(["--all"] if form.get("everything") else []))
+        started = not problem
+    if wants_json:
+        return Response.json({"started": started, "running": strava_running(), "problem": problem,
+                              "count": (await one(wo, "SELECT count(*) AS n FROM strava_activities"))["n"]})
+    return back("/workouts", view="settings", **({"error": problem} if problem else
+                {"msg": "Reading your Strava activities… this page shows how it went when you come back."}))
+
+
+async def strava_status(request, datasette):
+    """Is the scraper still going, and how did the last run go (the page asks every few seconds)"""
+    wo = datasette.get_database("workouts")
+    s = await workout_settings(wo)
+    return Response.json({"running": strava_running(), "what": _strava.get("what", ""), "synced": s.get("strava_synced", ""),
+                          "said": s.get("strava_said", ""), "error": s.get("strava_error", ""),
+                          "count": (await one(wo, "SELECT count(*) AS n FROM strava_activities"))["n"]})
+
+
+async def strava_panel(wo):
+    """Workouts > Settings: Strava as it stands"""
+    s = await workout_settings(wo)
+    counts = await one(wo, f"""SELECT count(*) AS n, count(*) FILTER (WHERE sport IN ({",".join("?" * len(RUN_SPORTS))})) AS runs,
+                                      min(date(start)) AS first FROM strava_activities""", list(RUN_SPORTS))
+    return dict(profile=s.get("strava_profile", ""), athlete=s.get("strava_athlete", ""), synced=s.get("strava_synced", ""),
+                said=s.get("strava_said", ""), error=s.get("strava_error", ""), running=strava_running(),
+                what=_strava.get("what", ""), ready=STRAVA_PYTHON.exists(), **counts)
+
+
+def pace(seconds_per_km):
+    if not seconds_per_km:
+        return "-"
+    m, s = divmod(round(seconds_per_km), 60)
+    return f"{m}:{s:02d}"
+
+
+def duration(seconds):
+    h, rest = divmod(int(seconds or 0), 3600)
+    m, s = divmod(rest, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+async def running_stats(wo):
+    """The Stats tab's running section, from your Strava runs (None when there are none)"""
+    runs = await rows(wo, "SELECT * FROM strava_runs")
+    if not runs:
+        return None
+    today = date.today()
+    month, year = today.isoformat()[:7], str(today.year)
+    km = lambda rs: round(sum(r["km"] for r in rs), 1)
+    this_month = [r for r in runs if r["date"].startswith(month)]
+    this_year = [r for r in runs if r["date"].startswith(year)]
+    recent = [r for r in runs if r["date"] >= (today - timedelta(days=30)).isoformat() and r["pace"]]
+    longest = max(runs, key=lambda r: r["km"])
+    # Fastest pace: over runs of 3 km or more, so a dash doesn't count
+    fast = min((r for r in runs if r["km"] >= 3 and r["pace"]), key=lambda r: r["pace"], default=None)
+    recent_pace = sum(r["moving_time"] for r in recent) / sum(r["km"] for r in recent) if recent and sum(r["km"] for r in recent) else None
+    return dict(
+        month_km=km(this_month), month_runs=len(this_month), year_km=km(this_year), year_runs=len(this_year),
+        total_km=km(runs), total_runs=len(runs), longest=longest, fastest=fast, recent_pace=recent_pace,
+        weekly_chart=run_weeks_chart(runs))
+
+
+def week_span(monday):
+    """'9 – 15 Nov', or '26 Oct – 1 Nov' across a month end"""
+    sunday = monday + timedelta(days=6)
+    return f"{monday.day} – {sunday.day} {sunday:%b}" if monday.month == sunday.month else f"{monday.day} {monday:%b} – {sunday.day} {sunday:%b}"
+
+
+def hours_minutes(seconds):
+    h, m = divmod(round((seconds or 0) / 60), 60)
+    return f"{h}h {m}m" if h else f"{m}m"
+
+
+def run_weeks_chart(runs, n=12):
+    """Distance per week over the last n weeks, after Strava's: the chosen week's distance, time and
+    climb on top, then a line with a soft fill and a ring per week; pointing at (or tabbing to) a
+    week shows it on top. Starts on this week."""
+    weeks = [date.fromisoformat(wk) for wk in weeks_back(n)]
+    per = {wk: dict(km=0.0, secs=0, climb=0.0) for wk in weeks}
+    for r in runs:
+        d = date.fromisoformat(r["date"])
+        wk = d - timedelta(days=d.weekday())
+        if wk in per:
+            per[wk]["km"] += r["km"] or 0
+            per[wk]["secs"] += r["moving_time"] or 0
+            per[wk]["climb"] += r["elevation"] or 0
+    top = nice_ticks(max(w["km"] for w in per.values()))[-1] or 1
+    xs = [100 * i / (n - 1) for i in range(n)]
+    ys = [100 - 100 * per[wk]["km"] / top for wk in weeks]
+    info = [dict(span=week_span(wk), km=f"{per[wk]['km']:.2f} km", time=hours_minutes(per[wk]["secs"]),
+                 climb=f"{round(per[wk]['climb'])} m") for wk in weeks]
+    line_pts = " ".join(f"{x:.2f},{y:.2f}" for x, y in zip(xs, ys))
+    grid = "".join(f'<line x1="{x:.2f}" y1="0" x2="{x:.2f}" y2="100"/>' for x in xs)
+    svg = (f'<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">'
+           f'<defs><linearGradient id="run-fill" x1="0" y1="0" x2="0" y2="1">'
+           f'<stop offset="0" style="stop-color:var(--run);stop-opacity:0.45"/>'
+           f'<stop offset="1" style="stop-color:var(--run);stop-opacity:0.02"/></linearGradient></defs>'
+           f'<g class="wk-grid">{grid}<line x1="0" y1="0" x2="100" y2="0"/></g>'
+           f'<line class="wk-base" x1="0" y1="100" x2="100" y2="100"/>'
+           f'<path class="wk-area" d="M0,100 L{line_pts.replace(" ", " L")} L100,100 Z"/>'
+           f'<polyline class="wk-line" points="{line_pts}"/></svg>')
+    last = n - 1
+    points = "".join(
+        f'<button type="button" class="wk-pt{" on" if i == last else ""}" data-i="{i}" style="left:{x:.2f}%;top:{y:.2f}%" '
+        f'aria-label="{escape(info[i]["span"])}: {escape(info[i]["km"])}"></button>'
+        for i, (x, y) in enumerate(zip(xs, ys)))
+    # A month's name under the week its 1st falls in
+    months = "".join(
+        f'<span class="wk-month" style="left:{x:.2f}%">{(wk + timedelta(days=6)):%b}</span>'
+        for x, wk in zip(xs, weeks) if (wk + timedelta(days=6)).day <= 7)
+    now = info[last]
+    head = (f'<div class="wk-span">{escape(now["span"])}</div><div class="wk-stats">'
+            + "".join(f'<div><span>{label}</span><b data-k="{key}">{escape(now[key])}</b></div>'
+                      for label, key in (("Distance", "km"), ("Time", "time"), ("Elevation", "climb")))
+            + "</div>")
+    return Markup(
+        f'<div class="wk-chart" data-weeks="{escape(json.dumps(info))}">{head}'
+        f'<div class="wk-label">Last {n} weeks</div>'
+        f'<div class="wk-plot"><span class="wk-top">{num(top)} km</span>{svg}'
+        f'<i class="wk-rule" style="left:{xs[last]:.2f}%;top:{ys[last]:.2f}%"></i>{points}{months}</div></div>')
 
 
 # --- Workout plans ------------------------------------------------------------------
 
-def split_muscles(text):
-    return [m.strip() for m in (text or "").split(",") if m.strip()]
-
-
 async def all_plans(wo):
-    plans = await rows(wo, "SELECT id, name, notes FROM plans ORDER BY name COLLATE NOCASE")
+    plans = await rows(wo, "SELECT id, name, notes, icon FROM plans ORDER BY name COLLATE NOCASE")
     by_plan = {}
-    for e in await rows(wo, """
-            SELECT pe.*, coalesce(em.muscle_group, '') AS muscle_group
-            FROM plan_exercises pe LEFT JOIN exercise_muscles em ON em.exercise = pe.exercise
-            ORDER BY pe.plan_id, pe.position, pe.id"""):
+    for e in await rows(wo, "SELECT * FROM plan_exercises ORDER BY plan_id, position, id"):
         by_plan.setdefault(e["plan_id"], []).append(e)
     for p in plans:
         p["exercises"] = by_plan.get(p["id"], [])
-        # The plan's muscle groups, in the order its exercises first train them
-        muscles = []
-        for e in p["exercises"]:
-            muscles += [m for m in split_muscles(e["muscle_group"]) if m.lower() not in map(str.lower, muscles)]
-        p["muscles"] = muscles
     return plans
 
 
@@ -1018,29 +1349,24 @@ async def plans_page(wo, editing):
     plans = await all_plans(wo)
     sched = await schedule(wo)
     names = {p["id"]: p["name"] for p in plans}
-    muscles = {p["id"]: p["muscles"] for p in plans}
     today = date.today()
     upcoming = []
     for k in range(7):
         d = (today + timedelta(days=k)).isoformat()
         plan_id, source = scheduled(d, sched)
-        upcoming.append({"date": d, "plan": names.get(plan_id), "plan_id": plan_id, "source": source,
-                         "muscles": muscles.get(plan_id, [])})
+        upcoming.append({"date": d, "plan": names.get(plan_id), "plan_id": plan_id, "source": source})
     one_offs = [{"date": d, "plan": names.get(pid)} for d, pid in sorted(sched.items())
                 if DATE_RE.match(d) and d >= today.isoformat()]
     edit = None
     if editing == "new":
-        edit = {"id": "", "name": "", "notes": "", "exercises": []}
+        edit = {"id": "", "name": "", "notes": "", "icon": "", "exercises": []}
     elif editing and editing.isdigit():
         edit = next((p for p in plans if p["id"] == int(editing)), None)
     return dict(
         plans=plans, upcoming=upcoming, one_offs=one_offs, edit=edit,
         weekly=[(key, WEEKDAY_NAMES[i], sched.get(key)) for i, key in enumerate(WEEKDAYS)],
         exercise_names=[r["name"] for r in await rows(wo, "SELECT name FROM exercises ORDER BY name COLLATE NOCASE")],
-        exercise_muscles={r["exercise"].lower(): r["muscle_group"]
-                          for r in await rows(wo, "SELECT exercise, muscle_group FROM exercise_muscles")},
-        muscle_names=sorted({*MUSCLE_GROUPS, *(m for r in await rows(wo, "SELECT muscle_group FROM exercise_muscles")
-                                               for m in split_muscles(r["muscle_group"]))}, key=str.lower),
+        plan_icons=PLAN_ICONS, icons={p["id"]: p["icon"] for p in plans},
     )
 
 
@@ -1048,11 +1374,12 @@ async def plan_save(request, datasette):
     form = parse_qs((await request.post_body()).decode(), keep_blank_values=True)
     get = lambda key: (form.get(key) or [""])[0].strip()
     plan_id, name = get("id"), get("name")
+    icon = get("icon") if icon_ok(get("icon")) else ""
     if not name:
         return back("/workouts", view="plans", plan=plan_id or "new", error="A plan needs a name.")
-    columns = [form.get(k, []) for k in ("exercise", "sets", "reps", "weight", "ex_notes", "muscle")]
-    exercises, muscles = [], {}
-    for exercise, sets, reps, weight, notes, muscle in zip(*columns):
+    columns = [form.get(k, []) for k in ("exercise", "sets", "reps", "weight", "ex_notes")]
+    exercises = []
+    for exercise, sets, reps, weight, notes in zip(*columns):
         if not exercise.strip():
             continue
         try:
@@ -1064,23 +1391,17 @@ async def plan_save(request, datasette):
             return back("/workouts", view="plans", plan=plan_id or "new",
                         error=f"{exercise.strip()}: sets must be a whole number above 0 and weight 0 or more.")
         exercises.append((exercise.strip(), sets_n, reps.strip(), weight_n, notes.strip()))
-        muscles[exercise.strip()] = ", ".join(split_muscles(muscle))
 
     def write(conn):
         if plan_id:
-            conn.execute("UPDATE plans SET name = ?, notes = ? WHERE id = ?", [name, get("notes"), int(plan_id)])
+            conn.execute("UPDATE plans SET name = ?, notes = ?, icon = ? WHERE id = ?", [name, get("notes"), icon, int(plan_id)])
             pid = int(plan_id)
         else:
-            pid = conn.execute("INSERT INTO plans (name, notes) VALUES (?, ?)", [name, get("notes")]).lastrowid
+            pid = conn.execute("INSERT INTO plans (name, notes, icon) VALUES (?, ?, ?)", [name, get("notes"), icon]).lastrowid
         conn.execute("DELETE FROM plan_exercises WHERE plan_id = ?", [pid])
         conn.executemany(
             "INSERT INTO plan_exercises (plan_id, position, exercise, sets, reps, weight, notes) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [(pid, i + 1, *e) for i, e in enumerate(exercises)])
-        # Muscle groups belong to the exercise; an empty field leaves what's there
-        for exercise, muscle in muscles.items():
-            if muscle:
-                conn.execute("INSERT OR REPLACE INTO exercise_muscles (exercise, muscle_group) "
-                             "VALUES ((SELECT name FROM exercises WHERE name = ?), ?)", [exercise, muscle])
 
     try:
         await datasette.get_database("workouts").execute_write_fn(write)
@@ -1098,6 +1419,43 @@ async def plan_delete(request, datasette):
     if plan:
         await wo.execute_write("DELETE FROM plans WHERE id = ?", [plan["id"]])
     return back("/workouts", view="plans", msg=f"Deleted {plan['name']}." if plan else None)
+
+
+async def plan_order(request, datasette):
+    """A plan card's exercises dragged into a new order (their ids, top to bottom); JSON for app.js"""
+    if request.method != "POST":
+        return back("/workouts", view="plans")
+    form = parse_qs((await request.post_body()).decode())
+    plan_id = (form.get("id") or [""])[0]
+    ids = [int(i) for i in form.get("row", []) if i.isdigit()]
+    if not plan_id.isdigit() or not ids:
+        return Response.json({"ok": False}, status=400)
+
+    def write(conn):
+        conn.executemany("UPDATE plan_exercises SET position = ? WHERE id = ? AND plan_id = ?",
+                         [(i + 1, row_id, int(plan_id)) for i, row_id in enumerate(ids)])
+
+    await datasette.get_database("workouts").execute_write_fn(write)
+    return Response.json({"ok": True})
+
+
+async def day_order_save(request, datasette):
+    """The Log tab's exercises for one day dragged into a new order (names, top to bottom); JSON"""
+    if request.method != "POST":
+        return back("/workouts", view="log")
+    form = parse_qs((await request.post_body()).decode())
+    day = valid_date((form.get("date") or [""])[0])
+    names = form.get("exercise", [])
+    if not day or not names:
+        return Response.json({"ok": False}, status=400)
+
+    def write(conn):
+        conn.execute("DELETE FROM day_order WHERE date = ?", [day])
+        conn.executemany("INSERT OR REPLACE INTO day_order (date, exercise, position) VALUES (?, ?, ?)",
+                         [(day, name, i + 1) for i, name in enumerate(names)])
+
+    await datasette.get_database("workouts").execute_write_fn(write)
+    return Response.json({"ok": True})
 
 
 async def schedule_week(request, datasette):
@@ -1132,35 +1490,94 @@ async def schedule_date(request, datasette):
     return back("/workouts", view="plans", msg=msg)
 
 
-async def workout_stats(wo, exercise):
-    tiles = await one(wo, """
-        SELECT count(DISTINCT date) AS total,
-               count(DISTINCT CASE WHEN date >= date('now', 'localtime', '-6 days', 'weekday 1') THEN date END) AS week,
-               count(DISTINCT CASE WHEN date >= date('now', 'localtime', 'start of month') THEN date END) AS month,
-               max(date) AS last
-        FROM sets""")
-    weeks = weeks_back(12)
-    per_week = {r["week"]: r["n"] for r in await rows(wo, """
-        SELECT date(date, '-6 days', 'weekday 1') AS week, count(DISTINCT date) AS n
-        FROM sets WHERE date >= :start GROUP BY week""", {"start": weeks[0]})}
-    weekly = [(short_date(wk), [per_week.get(wk, 0)]) for wk in weeks]
-    volume = list(reversed(await rows(wo, "SELECT date, volume, sets FROM workouts LIMIT 20")))
-    exercises = [r["exercise"] for r in await rows(wo, "SELECT exercise FROM sets GROUP BY exercise ORDER BY count(*) DESC")]
-    exercise = exercise if exercise in exercises else (exercises[0] if exercises else None)
-    progress = await rows(wo, """
-        SELECT date, max(weight) AS heaviest, max(reps) AS most_reps, count(reps) AS sets,
-               round(max(weight * (1 + reps / 30.0)), 1) AS est_1rm
-        FROM sets WHERE exercise = :e GROUP BY date ORDER BY date""", {"e": exercise}) if exercise else []
-    bodyweight = bool(progress) and all(p["heaviest"] == 0 for p in progress)
-    # Logged without reps or weight (bouldering, a run): there's nothing to plot but the days
-    uncounted = bodyweight and all(p["most_reps"] is None for p in progress)
+async def workout_stats(wo, month):
+    # Favourite training days: the days you logged a workout on each weekday, all time (runs left
+    # out), as a heat strip: level 1-4 of the busiest weekday's count, 0 = never
+    lifted, _ = await workout_days(wo)
+    per_day = [0] * 7
+    for d in lifted:
+        per_day[d.weekday()] += 1
+    most = max(per_day)
+    weekdays = [dict(letter=name[0], name=name, n=n, level=ceil(4 * n / most) if n else 0)
+                for name, n in zip(WEEKDAY_NAMES, per_day)]
+    return dict(weekdays=weekdays, calendar=await workout_calendar(wo, month))
+
+
+async def workout_calendar(wo, month):
+    """One month, Monday first, for the Stats tab: the days you worked out (a Strava run counts, with
+    a shoe), and beside each week whether it had a workout and whether it's part of your current
+    week streak (which runs on across month ends)."""
+    today = date.today()
+    month = month if month and MONTH_RE.match(month) and month <= today.isoformat()[:7] else today.isoformat()[:7]
+    lifted, ran = await workout_days(wo)  # date -> exercises logged / Strava runs
+    done = set(lifted) | set(ran)
+    plans = [p for p in await all_plans(wo) if p["icon"]]
+    sched = await schedule(wo)
+
+    def day_plans(d):
+        """The plans a day's workout was (those with an icon): logged under the plan's own name, or
+        sharing exercises with it, best match first, the day's scheduled plan winning a tie"""
+        did = {e.lower() for e in lifted.get(d, [])}
+        planned, _ = scheduled(d.isoformat(), sched)
+        scored = []
+        for p in plans:
+            # (a whole plan logged at once can also be a single entry under the plan's name)
+            score = len(did & {e["exercise"].lower() for e in p["exercises"]}) + 2 * (p["name"].lower() in did)
+            if score:
+                scored.append((-score, p["id"] != planned, p["name"].lower(), p))
+        return [p for *_, p in sorted(scored)]
+
+    def what(d):
+        runs = [f"run {num(r['km'])} km" for r in ran.get(d, [])]
+        return ", ".join(lifted.get(d, []) + runs)
+    trained_weeks = {d - timedelta(days=d.weekday()) for d in done}
+    # The current week streak: weeks in a row with a workout, up to this week (or last week, while
+    # this one has none yet), as in streaks()
+    wk = today - timedelta(days=today.weekday())
+    if wk not in trained_weeks:
+        wk -= timedelta(weeks=1)
+    streak_weeks = set()
+    while wk in trained_weeks:
+        streak_weeks.add(wk)
+        wk -= timedelta(weeks=1)
+    first = date.fromisoformat(month + "-01")
+    last = date(first.year + first.month // 12, first.month % 12 + 1, 1) - timedelta(days=1)
+    rows_ = []
+    monday = first - timedelta(days=first.weekday())
+    while monday <= last:
+        days = []
+        for k in range(7):
+            d = monday + timedelta(days=k)
+            if d.month != first.month:
+                days.append(None)
+                continue
+            matched = day_plans(d) if d in lifted else []
+            # Up to two icons: the plan(s) it was, and a shoe for a run; a dot when there's more
+            icons = [p["icon"] for p in matched] + (["pi:sneaker"] if d in ran else [])
+            if d in ran and len(icons) > 2:
+                icons = icons[:1] + ["pi:sneaker"] + icons[1:-1]
+            days.append(dict(
+                day=d.day, iso=d.isoformat(), done=d in done, what=what(d), today=d == today, future=d > today,
+                icons=icons[:2], more=len(icons) > 2,
+                plan=", ".join(p["name"] for p in matched),
+                # Workouts on days in a row are joined (within the week's row)
+                link_prev=d in done and k > 0 and (d - timedelta(days=1)).month == d.month and d - timedelta(days=1) in done,
+                link_next=d in done and k < 6 and (d + timedelta(days=1)).month == d.month and d + timedelta(days=1) in done))
+        rows_.append(dict(days=days, trained=monday in trained_weeks, streak=monday in streak_weeks, future=monday > today))
+        monday += timedelta(weeks=1)
+    # The streak shows as one band down the week column; the flame sits on its latest week
+    for i, r in enumerate(rows_):
+        r["band_start"] = r["streak"] and (i == 0 or not rows_[i - 1]["streak"])
+        r["band_end"] = r["streak"] and (i == len(rows_) - 1 or not rows_[i + 1]["streak"])
+    latest = max((i for i, r in enumerate(rows_) if r["streak"]), default=None)
+    if latest is not None:
+        rows_[latest]["flame"] = True
+    earliest = min(done, default=today)
     return dict(
-        tiles=tiles, weekly=weekly, weekly_chart=columns(weekly, ("workouts",)),
-        volume=volume, volume_chart=columns([(short_date(v["date"]), [v["volume"]]) for v in volume], ("volume",), " kg"),
-        exercises=exercises, exercise=exercise, progress=progress, bodyweight=bodyweight, uncounted=uncounted,
-        progress_chart=line([(p["date"], (p["most_reps"] or 0) if bodyweight else p["heaviest"]) for p in progress],
-                            " reps" if bodyweight else " kg"),
-        records=await rows(wo, "SELECT * FROM records"),
+        title=f"{first:%B %Y}", rows=rows_, streak=len(streak_weeks),
+        workouts=sum(first <= d <= last for d in done),
+        prev=add_months(month, -1) if earliest.isoformat()[:7] < month else None,
+        next=add_months(month, 1) if month < today.isoformat()[:7] else None,
     )
 
 
@@ -1289,11 +1706,13 @@ async def budget_lines(fi):
     return lines
 
 
-async def spending(fi, start, end):
-    """What was spent per category from start up to (not including) end, biggest first"""
-    return await rows(fi, """
-        SELECT category, round(sum(amount), 2) AS spent, count(*) AS expenses FROM expenses
-        WHERE date >= :start AND date < :end GROUP BY category ORDER BY spent DESC""", {"start": start, "end": end})
+async def spending(fi, start, end, counts=None):
+    """What was spent per category from start up to (not including) end, biggest first. counts
+    "monthly" or "daily": only the categories ticked for it on Finance > Settings."""
+    only = f"AND e.category IN (SELECT name FROM categories WHERE {counts})" if counts in ("daily", "monthly") else ""
+    return await rows(fi, f"""
+        SELECT e.category, round(sum(e.amount), 2) AS spent, count(*) AS expenses FROM expenses e
+        WHERE e.date >= :start AND e.date < :end {only} GROUP BY e.category ORDER BY spent DESC""", {"start": start, "end": end})
 
 
 def meter(label, spent, budget):
@@ -1317,7 +1736,8 @@ def against_budget(lines, spent, extras=True):
 async def month_summary(fi, month, lines):
     start, end = month_range(month)
     total = await one(fi, """SELECT round(coalesce(sum(amount), 0), 2) AS spent, count(*) AS n FROM expenses
-                             WHERE date >= :start AND date < :end""", {"start": start, "end": end})
+                             WHERE date >= :start AND date < :end
+                               AND category IN (SELECT name FROM categories WHERE monthly)""", {"start": start, "end": end})
     budget = round(sum(line["amount"] for line in lines["monthly"]), 2) if lines["monthly"] else None
     summary = meter(month, total["spent"], budget)
     today = date.today()
@@ -1369,11 +1789,13 @@ async def finance(request, datasette):
     elif view == "investments":
         ctx.update(await finance_investments(fi, request.args.get("ticker"), request.args.get("range")))
     elif view == "settings":
+        found = {r["key"]: r["value"] for r in await rows(fi, "SELECT key, value FROM settings WHERE key LIKE 'ibkr_%' OR key LIKE 'wise_%'")}
         ctx.update(category_rows=await rows(fi, """
-            SELECT c.name,
-                   (SELECT count(*) FROM expenses e WHERE e.category = c.name) AS expenses,
-                   (SELECT count(*) FROM budget b WHERE b.category = c.name) AS budgets
-            FROM categories c ORDER BY 2 DESC, c.name COLLATE NOCASE"""))
+            SELECT c.name, c.daily, c.monthly,
+                   (SELECT count(*) FROM expenses e WHERE e.category = c.name) AS expenses
+            FROM categories c ORDER BY 4 DESC, c.name COLLATE NOCASE"""),
+                   ibkr=dict(token=bool(found.get("ibkr_flex_token")), query=found.get("ibkr_flex_query") or ""),
+                   wise=dict(token=bool(found.get("wise_api_token"))))
     else:
         ctx.update(await finance_stats(fi, lines, request.args.get("month") or ""))
     return await render(datasette, request, "app_finance.html", **ctx)
@@ -1403,12 +1825,11 @@ async def category_save(request, datasette):
                 result["msg"] = f"Added {new}."
         elif action == "rename":
             for name, new in renames:
-                conn.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", [new])
-                # a budget line or chart pick the target already has is kept, the old one dropped
+                # a new name keeps the old one's daily / monthly ticks
+                conn.execute("INSERT OR IGNORE INTO categories (name, daily, monthly) SELECT ?, daily, monthly FROM categories WHERE name = ?", [new, name])
+                # a budget line the target already has is kept, the old one dropped
                 conn.execute("DELETE FROM budget WHERE category = ? AND period IN (SELECT period FROM budget WHERE category = ?)", [name, new])
-                conn.execute("DELETE FROM daily_chart_categories WHERE category = ? AND EXISTS (SELECT 1 FROM daily_chart_categories WHERE category = ?)", [name, new])
                 conn.execute("UPDATE budget SET category = ? WHERE category = ?", [new, name])
-                conn.execute("UPDATE daily_chart_categories SET category = ? WHERE category = ?", [new, name])
                 conn.execute("UPDATE expenses SET category = ? WHERE category = ?", [new, name])
                 if name.lower() != new.lower():
                     conn.execute("DELETE FROM categories WHERE name = ?", [name])
@@ -1424,7 +1845,6 @@ async def category_save(request, datasette):
                 result["error"] = f"{name} has expenses: rename it into another category instead."
             else:
                 conn.execute("DELETE FROM budget WHERE category = ?", [name])
-                conn.execute("DELETE FROM daily_chart_categories WHERE category = ?", [name])
                 conn.execute("DELETE FROM categories WHERE name = ?", [name])
                 result["msg"] = f"Deleted {name}."
 
@@ -1441,7 +1861,8 @@ async def finance_month(fi, month, lines):
     record = next((r for r in await month_records(fi) if r["month"] == month), None)
     return dict(
         month=month, summary=await month_summary(fi, month, lines), record=record,
-        by_category=against_budget(lines["monthly"], await spending(fi, start, end)),
+        by_category=against_budget(lines["monthly"], await spending(fi, start, end, "monthly")),
+        pie_chart=pie([(r["category"], r["spent"]) for r in await spending(fi, start, end, "monthly")], money),
         prev_month=add_months(month, -1) if first and first[:7] < month else None,
         next_month=add_months(month, 1) if month < date.today().isoformat()[:7] else None,
     )
@@ -1547,14 +1968,15 @@ async def finance_stats(fi, lines, pick):
     year = (this_month if pick == "all" else pick)[:4]
     shown = year_records(records, year)
     start, end = ("0000-01-01", "9999-12-31") if pick == "all" else month_range(pick)
-    by_category = await spending(fi, start, end)
+    by_category = await spending(fi, start, end, "monthly")
     spent = round(sum(r["spent"] for r in by_category), 2)
     ctx = dict(
         pick=pick, month_options=options, budget=budget, spent=spent, records=shown, counted=counted, year=year,
         average_month=average_month, monthly_chart=month_chart(shown, budget, average_month),
         by_category=by_category,
         biggest=await rows(fi, """SELECT id, date, category, amount, notes FROM expenses
-                                  WHERE date >= :start AND date < :end ORDER BY amount DESC, date LIMIT 5""",
+                                  WHERE date >= :start AND date < :end AND category IN (SELECT name FROM categories WHERE monthly)
+                                  ORDER BY amount DESC, date LIMIT 5""",
                            {"start": start, "end": end}),
     )
     if pick == "all":
@@ -1568,8 +1990,8 @@ async def finance_stats(fi, lines, pick):
     compared = sorted(against_budget(lines["monthly"], by_category), key=lambda c: -c["spent"])
     ctx["category_chart"] = bullets([(c["category"], c["spent"], c["budget"], c["spent"] / spent if spent else 0)
                                      for c in compared], money)
-    # Spent per day adds up only the categories you picked for it (daily_chart_categories),
-    # or the daily budget's when you haven't picked any, or everything when there's neither.
+    # Spent per day adds up only the categories ticked "daily" on Finance > Settings (everything
+    # when none is).
     # The chart shows every day of the month, the ones still to come too; averages per day
     # (the chart's line and the Average day tile) add up the same categories and count every
     # day of the month so far, the days without spending too.
@@ -1604,7 +2026,7 @@ async def finance_stats(fi, lines, pick):
         average_day=average, spent_days=sum(1 for d, total in zip(every_day, totals) if d in days and total),
         left=round(budget - spent, 2) if budget is not None else None,
         daily=[(d, total, cats) for (d, cats), total in zip(per_day.items(), totals) if d in days],
-        daily_picked=picked, daily_picked_lower=wanted, daily_chosen=bool(await rows(fi, "SELECT 1 FROM daily_chart_categories LIMIT 1")),
+        daily_picked=picked,
         daily_chart=combo([str(date.fromisoformat(d).day) for d in every_day], tips, fmt=money, refs=refs, label_all=True, bars=[{
             "name": ", ".join(picked) or "Spent", "color": "var(--spending)", "values": totals}]),
     )
@@ -1612,27 +2034,21 @@ async def finance_stats(fi, lines, pick):
 
 
 async def daily_chart_categories(fi, lines):
-    """The categories Spent per day adds up: the ones you picked, else the daily budget's
+    """The categories Spent per day adds up: the ones ticked "daily" on Finance > Settings
     (an empty list means every category)"""
-    picked = [r["category"] for r in await rows(fi, """
-        SELECT coalesce(c.name, d.category) AS category FROM daily_chart_categories d
-        LEFT JOIN categories c ON c.name = d.category ORDER BY 1 COLLATE NOCASE""")]
-    return picked or [line["category"] for line in lines["daily"]]
+    return [r["name"] for r in await rows(fi, "SELECT name FROM categories WHERE daily ORDER BY name COLLATE NOCASE")]
 
 
-async def daily_categories_save(request, datasette):
-    form = parse_qs((await request.post_body()).decode(), keep_blank_values=True)
-    month = (form.get("month") or [""])[0]
-    chosen = [] if form.get("reset") else list(dict.fromkeys(c.strip() for c in form.get("category", []) if c.strip()))
-
-    def write(conn):
-        conn.execute("DELETE FROM daily_chart_categories")
-        conn.executemany("INSERT OR IGNORE INTO daily_chart_categories (category) VALUES (?)", [(c,) for c in chosen])
-
-    await datasette.get_database("finance").execute_write_fn(write)
-    return back("/finance", view="stats", month=month,
-                msg=f"Spent per day now adds up {', '.join(chosen)}." if chosen
-                else "Spent per day adds up the daily budget's categories again.")
+async def category_flags_save(request, datasette):
+    """Finance > Settings: tick or untick whether a category counts in daily or monthly spending"""
+    if request.method != "POST":
+        return back("/finance", view="settings")
+    form = await request.post_vars()
+    flag, on = form.get("flag"), 1 if form.get("on") in ("1", "true", "on") else 0
+    if flag not in ("daily", "monthly"):
+        return Response.json({"ok": False}, status=400)
+    await datasette.get_database("finance").execute_write(f"UPDATE categories SET {flag} = ? WHERE name = ?", [on, form.get("category", "")])
+    return Response.json({"ok": True})
 
 
 async def finance_savings(fi, year=""):
@@ -2232,7 +2648,7 @@ async def ibkr_settings_save(request, datasette):
     wise_token = (form.get("wise_token") or "").strip()
     fi = datasette.get_database("finance")
     if query and not query.isdigit():
-        return back("/finance", view="investments", error="The Query ID is the number next to the query in IBKR's Flex Queries list.")
+        return back("/finance", view="settings", error="The Query ID is the number next to the query in IBKR's Flex Queries list.")
 
     def write(conn):
         if token:  # an empty field keeps the saved token
@@ -2244,7 +2660,7 @@ async def ibkr_settings_save(request, datasette):
 
     await fi.execute_write_fn(write)
     _refresh.pop("at", None)  # fetch again when the page opens, however recent the last time was
-    return back("/finance", view="investments", msg="Saved. The page fetches from IBKR and Wise now.")
+    return back("/finance", view="settings", msg="Saved. Finance fetches from IBKR and Wise when you open it.")
 
 
 # --- Wise: what the money that arrived at IBKR cost in ringgit, from Wise's statements --
@@ -2880,11 +3296,11 @@ async def zenquotes_setting(request, datasette):
     form = await request.post_vars()
     percent = form.get("percent", "").strip()
     if not percent.isdigit():
-        return back("/quotes", error="ZenQuotes' share must be a whole number from 0 to 100.")
+        return back("/quotes", view="settings", error="ZenQuotes' share must be a whole number from 0 to 100.")
     percent = min(100, int(percent))
     await datasette.get_database("quotes").execute_write(
         "INSERT INTO settings (key, value) VALUES ('zenquotes_percent', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", [str(percent)])
-    return back("/quotes", msg=("Home's quote of the day now comes from your own quotes only." if percent == 0
+    return back("/quotes", view="settings", msg=("Home's quote of the day now comes from your own quotes only." if percent == 0
                                   else f"ZenQuotes will be Home's quote on {percent}% of days."))
 
 
@@ -3362,8 +3778,10 @@ def file_size(n):
 
 async def settings_page(request, datasette):
     s = settings()
-    pages = [dict(key=k, default=p["name"], name=s["names"].get(k, ""), shown=k not in s["hidden"], locked=k in s["locked"])
-             for k, p in PAGES.items() if page_installed(k)]
+    if not s["password"]:  # first a password: Settings (and the locks) sit behind it
+        return await render(datasette, request, "app_settings.html", page="settings", setup=True)
+    pages = [dict(key=k, default=p["name"], name=s["names"].get(k, ""), shown=k not in s["hidden"], locked=k in s["locked"],
+                  icon=s["icons"].get(k, "")) for k, p in ordered_pages(s) if page_installed(k)]
     names = page_names(s)
     widgets = [dict(key=k, name=w["name"], page=names[w["page"]] if w["page"] else "", on=k not in s["widgets_off"],
                     hidden=bool(w["page"]) and w["page"] in s["hidden"])
@@ -3378,25 +3796,26 @@ async def settings_page(request, datasette):
                         size=file_size(Path(db.path).stat().st_size) if db.path else "",
                         page=names[owner] if owner else "", locked=owner in locked))
     return await render(datasette, request, "app_settings.html", page="settings", pages=pages, widgets=widgets, raw=raw,
-                        has_password=bool(s["password"]), minutes=s["unlock_minutes"])
+                        minutes=s["unlock_minutes"], page_icons=PAGE_ICONS)
 
 
 async def settings_pages_save(request, datasette):
-    """Each page's name, whether it's in the menu and whether it's locked. Turning a lock off needs the password."""
+    """Each page's name, icon, whether it's in the menu and whether it's locked (Settings is behind the password)"""
     if request.method != "POST":
         return back("/settings")
     form = parse_qs((await request.post_body()).decode(), keep_blank_values=True)
     get = lambda key: (form.get(key) or [""])[0].strip()
     s = settings()
+    if not s["password"]:
+        return back("/settings", error="Set a password first.")
     keys = [k for k in PAGES if page_installed(k)]  # pages that aren't installed keep what they had
     hidden = [k for k in keys if k != "home" and not get(f"show_{k}")]
     locked = [k for k in keys if k != "home" and get(f"lock_{k}")]
-    if locked and not s["password"]:
-        return back("/settings", error="Set a password first (under Password), then lock pages.")
-    if any(k in keys and k not in locked for k in s["locked"]) and not password_ok(get("password")):
-        await asyncio.sleep(0.5)  # a pause, so guessing is slow
-        return back("/settings", error="Turning a lock off needs the password.")
+    s["icons"] = {**{k: v for k, v in s["icons"].items() if k not in keys},
+                  **{k: get(f"icon_{k}") for k in keys if icon_ok(get(f"icon_{k}"))}}
     names = {k: get(f"name_{k}")[:40] for k in keys}
+    order = [k for k in form.get("order", []) if k in PAGES]
+    s["order"] = order + [k for k in s["order"] if k not in order]
     s["names"] = {**{k: v for k, v in s["names"].items() if k not in keys},
                   **{k: v for k, v in names.items() if v and v != PAGES[k]["name"]}}
     s["hidden"] = [k for k in s["hidden"] if k not in keys] + hidden
@@ -3412,40 +3831,54 @@ async def settings_widgets_save(request, datasette):
     form = parse_qs((await request.post_body()).decode(), keep_blank_values=True)
     shown, on = set(form.get("present", [])) & set(WIDGETS), set(form.get("widget", []))
     s = settings()
+    if not s["password"]:
+        return back("/settings", error="Set a password first.")
     s["widgets_off"] = [k for k in s["widgets_off"] if k not in shown] + [k for k in WIDGETS if k in shown and k not in on]
     save_settings(s)
     return back("/settings", msg="Saved Home's widgets.")
 
 
 async def settings_password_save(request, datasette):
-    """Set the password, change it or how long an unlocked page stays open, or remove it (which unlocks everything)"""
+    """Set or change the password (you're already in, so no old one), how long unlocking lasts, or remove
+    it: then nothing is locked, and Settings asks for a new password next time"""
     if request.method != "POST":
         return back("/settings")
     form = await request.post_vars()
     s = settings()
-    if s["password"] and not password_ok(form.get("current", "")):
-        await asyncio.sleep(0.5)
-        return back("/settings", error="The current password isn't right.")
     if form.get("action") == "remove":
         s.update(password="", locked=[])
         save_settings(s)
-        response = back("/settings", msg="Removed the password. No page is locked now.")
+        response = back("/settings", msg="Removed the password. Nothing is locked now.")
         set_open_cookie(datasette, response, None)
         return response
-    new, again = form.get("new", ""), form.get("again", "")
-    if new or not s["password"]:
-        if not new:
-            return back("/settings", error="Type a password to set.")
-        if new != again:
-            return back("/settings", error="The two new passwords aren't the same.")
+    new, minutes = form.get("new", ""), form.get("minutes", "").strip()
+    if not s["password"] and not new:
+        return back("/settings", error="Type a password.")
+    if minutes and not minutes.isdigit():
+        return back("/settings", error="Minutes is a whole number (0 = until the browser closes).")
+    first = not s["password"]
+    if new:
         s["password"] = hash_password(new)
-    minutes = form.get("minutes", "").strip()
     if minutes:
-        if not minutes.isdigit():
-            return back("/settings", error="Minutes is a whole number (0 = until the browser closes).")
         s["unlock_minutes"] = int(minutes)
     save_settings(s)
-    return back("/settings", msg="Saved the new password." if new else "Saved.")
+    response = back("/settings", msg="Password set." if first else ("Saved the new password." if new else "Saved."))
+    if first:  # you've just set it: you're in
+        set_open_cookie(datasette, response, open_until(s))
+    return response
+
+
+async def menu_order(request, datasette):
+    """Dragging the top menu saves its order here (the same order Settings > Pages shows)"""
+    if request.method != "POST":
+        return Response.text("POST only", status=405)
+    form = parse_qs((await request.post_body()).decode(), keep_blank_values=True)
+    by_url = {p["url"]: k for k, p in PAGES.items()}
+    order = [by_url[u] for u in form.get("href", []) if u in by_url]
+    s = settings()
+    s["order"] = order + [k for k in s["order"] if k not in order]
+    save_settings(s)
+    return Response.json({"ok": True})
 
 
 async def unlock(request, datasette):
@@ -3470,21 +3903,12 @@ async def lock(request, datasette):
     if request.method != "POST":
         return back("/")
     target = safe_next((await request.post_vars()).get("next")) or "/"
-    if page_of(target.split("?")[0]) in settings()["locked"]:
-        target = "/"
+    path = target.split("?")[0].lower()
+    if page_of(path) in settings()["locked"] or path == "/settings" or path.startswith("/settings/"):
+        target = "/"  # that page is shut now
     response = Response.redirect(target)
     set_open_cookie(datasette, response, None)
     return response
-
-
-# The pages used to be at /-/<page>, HSK at /-/chinese and Thoughts at /-/knowledge
-OLD_PAGES = {"chinese": "/hsk", "knowledge": "/thoughts", "announcements": "/work/announcements", "elearn": "/work/announcements"}
-
-
-async def old_address(request, datasette):
-    """An old /-/... address (a bookmark, say): go to where that page is now"""
-    old, rest, query = request.url_vars["old"].lower(), request.url_vars.get("rest") or "", request.query_string
-    return Response.redirect(OLD_PAGES.get(old, f"/{old}") + rest + (f"?{query}" if query else ""))
 
 
 # --- Datasette's own pages: match the theme -------------------------------------
@@ -3501,10 +3925,10 @@ async def datasette_css(request, datasette):
 @hookimpl
 def register_routes():
     books = "|".join(f for f in ("quotes", "thoughts") if f in FEATURES)
-    routes = [(r"^/$", home), (r"^/-/app/datasette\.css$", datasette_css),
+    routes = [(r"^/$", home), (r"^/theme/datasette\.css$", datasette_css),
               (r"^/settings$", settings_page), (r"^/settings/pages$", settings_pages_save),
               (r"^/settings/widgets$", settings_widgets_save), (r"^/settings/password$", settings_password_save),
-              (r"^/unlock$", unlock), (r"^/lock$", lock)]
+              (r"^/unlock$", unlock), (r"^/lock$", lock), (r"^/menu/order$", menu_order)]
     for feature, paths in ROUTES.items():
         if feature in FEATURES:
             routes += paths
@@ -3513,8 +3937,6 @@ def register_routes():
     if books:
         routes += [(rf"^/(?P<book>{books})$", notebook), (rf"^/(?P<book>{books})/save$", notebook_save),
                    (rf"^/(?P<book>{books})/delete$", notebook_delete), (rf"^/(?P<book>{books})/tags$", notebook_tags)]
-    routes += [(r"^/-/(?P<old>chinese|workouts|finance|quotes|thoughts|knowledge|work|announcements|elearn|settings)(?P<rest>/.*)?$",
-                old_address)]
     # Any case works: /HSK is /hsk
     return [("(?i)" + regex, view) for regex, view in routes]
 
@@ -3533,15 +3955,21 @@ ROUTES = {
         (r"^/workouts/delete$", workouts_delete),
         (r"^/workouts/plan/save$", plan_save),
         (r"^/workouts/plan/delete$", plan_delete),
+        (r"^/workouts/plan/order$", plan_order),
+        (r"^/workouts/day/order$", day_order_save),
         (r"^/workouts/schedule/week$", schedule_week),
         (r"^/workouts/schedule/date$", schedule_date),
+        (r"^/workouts/strava/save$", strava_save),
+        (r"^/workouts/strava/login$", strava_login),
+        (r"^/workouts/strava/sync$", strava_sync_route),
+        (r"^/workouts/strava/status$", strava_status),
     ],
     "finance": [
         (r"^/finance$", finance),
         (r"^/finance/expense$", expense_add),
         (r"^/finance/balances$", balances_save),
         (r"^/finance/month$", month_setting),
-        (r"^/finance/daily-categories$", daily_categories_save),
+        (r"^/finance/category/flags$", category_flags_save),
         (r"^/finance/investments/live$", investments_live),
         (r"^/finance/refresh$", finance_refresh),
         (r"^/finance/ibkr$", ibkr_settings_save),

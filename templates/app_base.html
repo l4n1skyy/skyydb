@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Databases{% endblock %}</title>
+<title>skyydb</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <style>
 :root {
   color-scheme: {{ theme.mode }};
@@ -17,26 +18,20 @@ html { background: var(--bg); scrollbar-gutter: stable; }
 </head>
 <body>
 <header class="top">
-  <a class="brand" href="/" title="Home"><img src="{{ logo_uri }}" alt="l4n1skyy" decoding="sync"></a>
+  <div class="brand-wrap">
+    <a class="brand" href="/" title="Home"><img src="{{ logo_uri }}" alt="skyydb" decoding="sync"></a>
+  </div>
   <nav class="main-nav" aria-label="Pages">
-    {% for p in nav %}<a href="{{ p.url }}"{% if page == p.key %} aria-current="page"{% endif %}{% if p.locked %} class="locked" title="Locked"{% endif %}><span class="nav-name">{{ p.name }}</span></a>
+    {% for p in nav %}<a href="{{ p.url }}"{% if page == p.key %} aria-current="page"{% endif %}{% if p.locked %} class="locked" title="Locked"{% endif %}>{% if p.icon and not p.locked %}{{ px(p.icon, "nav-icon") }}{% endif %}<span class="nav-name">{{ p.name }}</span></a>
     {% endfor %}
   </nav>
   <script>
-  // The menu can be rearranged by dragging; the order is remembered in this browser
+  // The menu can be rearranged by dragging; the order is saved (the same one Settings > Pages shows)
   (() => {
     const nav = document.querySelector(".main-nav");
-    const KEY = "nav-order";
-    const save = () => { try { localStorage.setItem(KEY, JSON.stringify([...nav.children].map((a) => a.getAttribute("href")))); } catch {} };
-    window.applyNavOrder = () => {
-      try {
-        for (const href of JSON.parse(localStorage.getItem(KEY) || "[]")) {
-          const a = [...nav.children].find((x) => x.getAttribute("href") === href);
-          if (a) nav.appendChild(a);
-        }
-      } catch {}
-    };
-    applyNavOrder();
+    const save = () => fetch("/menu/order", {
+      method: "POST", body: new URLSearchParams([...nav.children].map((a) => ["href", a.getAttribute("href")])),
+    }).catch(() => {});
     let dragged = null;
     nav.addEventListener("dragstart", (e) => { dragged = e.target.closest("a"); if (dragged) { e.dataTransfer.effectAllowed = "move"; dragged.classList.add("dragging"); } });
     nav.addEventListener("dragover", (e) => {

@@ -46,7 +46,6 @@
   </div>
 </div>
 
-<p class="muted small-print an-sync">Last read: {% for s in an_sync %}<span{% if s.error %} class="bad" title="{{ s.error }}"{% endif %}>{{ s.source }} {{ s.at[11:16] if s.at else 'never' }}{{ ' ⚠' if s.error }}</span>{{ ' · ' if not loop.last }}{% endfor %}</p>
 
 <div class="tiles">
   <div class="tile{{ ' due' if an_soon }}"><span class="tile-label">Due in 14 days</span><span class="tile-value">{{ an_soon }}</span></div>

@@ -1,5 +1,5 @@
 /* Datasette's own pages (/chinese, /workouts, /finance and their tables) in the app's
-   colours. plugins/app.py serves this at /-/app/datasette.css after a :root block with the
+   colours. plugins/app.py serves this at /theme/datasette.css after a :root block with the
    colour variables (the same ones the app pages use); datasette.yaml loads it. Datasette's
    stylesheet has its colours written into the rules, so this overrides them rule by rule. */
 

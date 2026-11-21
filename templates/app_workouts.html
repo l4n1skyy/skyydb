@@ -1,4 +1,5 @@
 {% extends "app_base.html" %}
+{% from "_icons.html" import icon_picker %}
 {% block title %}{{ names.workouts }}{% endblock %}
 {% block main %}
 <div class="page-head">
@@ -7,8 +8,11 @@
     <div class="tab-group">
       <a href="?view=log"{% if view == "log" %} aria-current="page"{% endif %}>Log</a>
       <a href="?view=plans"{% if view == "plans" %} aria-current="page"{% endif %}>Plans</a>
-      <a href="?view=history"{% if view == "history" %} aria-current="page"{% endif %}>History</a>
       <a href="?view=stats"{% if view == "stats" %} aria-current="page"{% endif %}>Stats</a>
+    </div>
+    <div class="tab-group">
+      <a href="?view=history"{% if view == "history" %} aria-current="page"{% endif %}>History</a>
+      <a href="?view=settings"{% if view == "settings" %} aria-current="page"{% endif %}>Settings</a>
     </div>
   </nav>
 </div>
@@ -75,10 +79,13 @@
             <button class="icon danger" title="Delete this entry">delete</button>
           </form>
     {% endmacro %}
+    {# The day's exercises: drag one by its handle (right) to change their order #}
+    <div class="exercise-list" data-sortable="day" data-day="{{ day }}">
     {% for g in groups %}
-    {# A lone entry without reps ("Bouldering") is just done: its edit/delete sit on the name's row #}
-    {% set lone = g.sets[0] if g.sets|length == 1 and not g.sets[0].reps else none %}
-    <div class="exercise">
+    {# A whole plan logged as one entry ("Bouldering") is just done: its edit/delete sit on the name's row.
+       Every other exercise lists its sets, even a single one. #}
+    {% set lone = g.sets[0] if g.whole_plan else none %}
+    <div class="exercise" data-exercise="{{ g.exercise }}">
       <div class="exercise-head{% if lone %} lone{% endif %}">
         <h3>{{ g.exercise }}</h3>
         {% if g.counted %}<span class="muted">{{ g.counted }} set{{ "s" if g.counted != 1 }} · {{ g.reps }} reps{% if g.volume %} · {{ g.volume|num }} kg{% endif %}</span>{% endif %}
@@ -86,7 +93,9 @@
           {% if lone.weight %}<span class="set-val">{{ lone.weight|num }} kg</span>{% endif %}
           {% if lone.notes %}<span class="set-note muted">{{ lone.notes }}</span>{% endif %}
           {{ entry_tools(lone) }}
+        {% else %}<span class="spacer"></span>
         {% endif %}
+        <span class="drag-handle" tabindex="0" role="button" aria-label="Move (drag, or press up / down)" title="Drag to move"></span>
       </div>
       {% if not lone %}
       <ol class="sets">
@@ -96,7 +105,7 @@
           <span class="set-no">Set {{ s.set_no }}</span>
           <span class="set-val">{{ s.reps }} × {% if s.weight %}{{ s.weight|num }} kg{% else %}bodyweight{% endif %}</span>
           {% else %}
-          <span class="set-no"></span>
+          <span class="set-no">1×</span>
           {% if s.weight %}<span class="set-val">{{ s.weight|num }} kg</span>{% endif %}
           {% endif %}
           {% if s.notes %}<span class="set-note muted">{{ s.notes }}</span>{% endif %}
@@ -107,6 +116,7 @@
       {% endif %}
     </div>
     {% endfor %}
+    </div>
     {% else %}
     <p class="empty">Nothing logged on this day yet. Log something on the left.</p>
     {% endif %}
@@ -119,32 +129,32 @@
   <h2>{% if edit.id %}Edit {{ edit.name }}{% else %}New plan{% endif %}</h2>
   <input type="hidden" name="id" value="{{ edit.id }}">
   <div class="form-grid">
-    <label>Name <input name="name" value="{{ edit.name }}" required placeholder="Push day"></label>
+    <div class="name-with-icon">
+      <label>Name <input name="name" value="{{ edit.name }}" required placeholder="Push day"></label>
+      <div class="icon-field"><span class="field-label">Icon</span>{{ icon_picker("icon", edit.icon, plan_icons, "Plan icon") }}</div>
+    </div>
     <label class="wide">Notes <textarea name="notes" rows="2" placeholder="Warm up first, rest 2 min between sets, ...">{{ edit.notes }}</textarea></label>
   </div>
   <div class="plan-rows-wrap">
-  <table class="plan-rows">
-    <thead><tr><th>Exercise</th><th>Muscle group</th><th>Sets</th><th>Reps</th><th>Weight (kg)</th><th>Notes</th><th></th></tr></thead>
-    <tbody id="plan-rows">
+  <table class="plan-rows plan-edit-table">
+    <thead><tr><th class="c-ex">Exercise</th><th class="c-sets">Sets</th><th class="c-reps">Reps</th><th class="c-weight">Weight (kg)</th><th>Notes</th><th class="c-tools"></th></tr></thead>
+    <tbody id="plan-rows" data-sortable="editor">
     {% for e in edit.exercises + [none] * (3 if not edit.exercises else 1) %}
       <tr>
         <td><input name="exercise" list="plan-exercise-list" value="{{ e.exercise if e else '' }}" placeholder="Bench press" aria-label="Exercise"></td>
-        <td><input name="muscle" list="muscle-list" value="{{ e.muscle_group if e else '' }}" placeholder="Chest" aria-label="Muscle group"></td>
         <td><input name="sets" type="number" min="1" step="1" value="{{ e.sets if e and e.sets else '' }}" class="narrow" aria-label="Sets"></td>
         <td><input name="reps" value="{{ e.reps if e else '' }}" placeholder="8-12" class="narrow" aria-label="Reps"></td>
         <td><input name="weight" type="number" min="0" step="0.25" value="{{ e.weight|plain if e else '' }}" class="narrow" aria-label="Weight in kg"></td>
         <td><input name="ex_notes" value="{{ e.notes if e else '' }}" aria-label="Notes"></td>
         <td class="row-tools">
-          <button type="button" class="icon" data-move="-1" title="Move up">up</button>
-          <button type="button" class="icon" data-move="1" title="Move down">down</button>
           <button type="button" class="icon danger" data-remove title="Remove">remove</button>
+          <span class="drag-handle" tabindex="0" role="button" aria-label="Move (drag, or press up / down)" title="Drag to move"></span>
         </td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
   </div>
-  <p class="muted small-print">A plan only needs a name: leave the exercises out for something like bouldering, or list them with as much or as little detail as you like (sets, reps, weight and notes are all optional). Reps can be a range like 8-12. A muscle group belongs to the exercise, so it shows in every plan that has it and fills in by itself when you pick an exercise you've used; use commas for several ("Chest, Triceps"). Empty rows are ignored.</p>
   <div class="actions">
     <button type="button" class="btn small" id="add-row">+ Add exercise</button>
     <span class="spacer"></span>
@@ -152,8 +162,6 @@
     <button class="btn primary">Save plan</button>
   </div>
   <datalist id="plan-exercise-list">{% for n in exercise_names %}<option>{{ n }}</option>{% endfor %}</datalist>
-  <datalist id="muscle-list">{% for m in muscle_names %}<option>{{ m }}</option>{% endfor %}</datalist>
-  <script type="application/json" id="exercise-muscles">{{ exercise_muscles|tojson }}</script>
 </form>
 {% else %}
 <section class="panel coming-up">
@@ -161,15 +169,30 @@
   <ol class="upcoming-days">
     {% for u in upcoming %}
     <li{% if loop.first %} class="today"{% endif %}>
-      <a href="/workouts?date={{ u.date }}">
+      <button type="button" class="day-card" data-day="{{ u.date }}" data-label="{{ 'Today' if loop.first else u.date|nice_date }}"
+              data-plan="{{ u.plan_id or '' }}" data-one-off="{{ 1 if u.source == 'one-off' else '' }}" title="Change the plan for this day">
         <span class="when">{{ "Today" if loop.first else u.date|nice_date }}</span>
-        <span class="what{{ '' if u.plan else ' rest' }}">{{ u.plan or "Rest" }}</span>
-        {% if u.muscles %}<span class="muscles">{{ u.muscles|join(", ") }}</span>{% endif %}
+        <span class="what{{ '' if u.plan else ' rest' }}">{% if u.plan_id and icons[u.plan_id] %}{{ px(icons[u.plan_id], "plan-icon") }}{% endif %}{{ u.plan or "Rest" }}</span>
         {% if u.source == "one-off" %}<span class="badge">one-off</span>{% endif %}
-      </a>
+      </button>
     </li>
     {% endfor %}
   </ol>
+  {# The popup a day opens (app.js): its plan, just for that date #}
+  <dialog class="unlock-dialog day-plan-dialog" id="day-plan-dialog" aria-labelledby="day-plan-title">
+    <form method="post" action="/workouts/schedule/date">
+      <h2 id="day-plan-title">Plan for <span data-day-label></span></h2>
+      <input type="hidden" name="date" value="">
+      <div class="unlock-row">
+        <select name="plan" aria-label="Plan">
+          <option value="">Rest</option>
+          {% for p in plans %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+          <option value="weekly">Back to the weekly plan</option>
+        </select>
+        <button class="btn primary">Set</button>
+      </div>
+    </form>
+  </dialog>
 </section>
 
 <div class="plans-layout">
@@ -219,10 +242,18 @@
       <h2>Plans</h2>
       <a class="btn small primary" href="?view=plans&amp;plan=new">+ New plan</a>
     </div>
+    {# Every plan shows the same columns (the ones any plan fills in), at the same widths, so they line up #}
+    {% set has = namespace(sets=false, reps=false, weight=false, notes=false) %}
+    {% for p in plans %}{% for e in p.exercises %}
+      {% if e.sets %}{% set has.sets = true %}{% endif %}
+      {% if e.reps %}{% set has.reps = true %}{% endif %}
+      {% if e.weight is not none %}{% set has.weight = true %}{% endif %}
+      {% if e.notes %}{% set has.notes = true %}{% endif %}
+    {% endfor %}{% endfor %}
     {% for p in plans %}
     <article class="panel plan-card">
       <header>
-        <h3>{{ p.name }}</h3>
+        <h3>{% if p.icon %}{{ px(p.icon, "plan-icon") }}{% endif %}{{ p.name }}</h3>
         <span class="spacer"></span>
         <a class="icon" href="?view=plans&amp;plan={{ p.id }}">edit</a>
         <form method="post" action="/workouts/plan/delete" class="delete-plan">
@@ -230,21 +261,11 @@
           <button class="icon danger" data-name="{{ p.name }}">delete</button>
         </form>
       </header>
-      {% if p.muscles %}<div class="chips">{% for m in p.muscles %}<span class="chip">{{ m }}</span>{% endfor %}</div>{% endif %}
       {% if p.notes %}<p class="muted">{{ p.notes }}</p>{% endif %}
       {% if p.exercises %}
-      {# Columns nobody filled in stay out of the way #}
-      {% set has = namespace(muscle=false, sets=false, reps=false, weight=false, notes=false) %}
-      {% for e in p.exercises %}
-        {% if e.muscle_group %}{% set has.muscle = true %}{% endif %}
-        {% if e.sets %}{% set has.sets = true %}{% endif %}
-        {% if e.reps %}{% set has.reps = true %}{% endif %}
-        {% if e.weight is not none %}{% set has.weight = true %}{% endif %}
-        {% if e.notes %}{% set has.notes = true %}{% endif %}
-      {% endfor %}
-      <table>
-        <thead><tr><th>Exercise</th>{% if has.muscle %}<th>Muscle group</th>{% endif %}{% if has.sets %}<th class="n">Sets</th>{% endif %}{% if has.reps %}<th class="n">Reps</th>{% endif %}{% if has.weight %}<th class="n">Weight (kg)</th>{% endif %}{% if has.notes %}<th>Notes</th>{% endif %}</tr></thead>
-        <tbody>{% for e in p.exercises %}<tr><td>{{ e.exercise }}</td>{% if has.muscle %}<td class="muted">{{ e.muscle_group }}</td>{% endif %}{% if has.sets %}<td class="n">{{ e.sets or "" }}</td>{% endif %}{% if has.reps %}<td class="n">{{ e.reps }}</td>{% endif %}{% if has.weight %}<td class="n">{{ e.weight|num if e.weight is not none else "" }}</td>{% endif %}{% if has.notes %}<td class="muted">{{ e.notes }}</td>{% endif %}</tr>{% endfor %}</tbody>
+      <table class="plan-table">
+        <thead><tr><th class="c-ex">Exercise</th>{% if has.sets %}<th class="n c-sets">Sets</th>{% endif %}{% if has.reps %}<th class="n c-reps">Reps</th>{% endif %}{% if has.weight %}<th class="n c-weight">Weight (kg)</th>{% endif %}{% if has.notes %}<th class="c-notes">Notes</th>{% endif %}<th class="c-drag"></th></tr></thead>
+        <tbody data-sortable="plan" data-plan="{{ p.id }}">{% for e in p.exercises %}<tr data-id="{{ e.id }}"><td>{{ e.exercise }}</td>{% if has.sets %}<td class="n">{{ e.sets or "" }}</td>{% endif %}{% if has.reps %}<td class="n">{{ e.reps }}</td>{% endif %}{% if has.weight %}<td class="n">{{ e.weight|num if e.weight is not none else "" }}</td>{% endif %}{% if has.notes %}<td class="muted c-notes">{{ e.notes }}</td>{% endif %}<td class="drag-cell"><span class="drag-handle" tabindex="0" role="button" aria-label="Move (drag, or press up / down)" title="Drag to move"></span></td></tr>{% endfor %}</tbody>
       </table>
       {% elif not p.notes %}<p class="muted">Just the name, no exercise list. <a href="?view=plans&amp;plan={{ p.id }}">Add details</a> if you want them.</p>{% endif %}
     </article>
@@ -269,70 +290,125 @@
   </table>
   {% else %}<p class="empty">No workouts yet. <a href="?view=log">Log your first one</a>.</p>{% endif %}
 </section>
+{% if runs %}
+{# Every run from Strava, newest first (Workouts > Settings keeps them synced) #}
+<h2 class="section-head">Runs <span class="muted">from Strava</span></h2>
+<section class="panel">
+  <table class="history runs">
+    <thead><tr><th>Date</th><th>Run</th><th class="n">km</th><th class="n">Time</th><th class="n">Pace (/km)</th><th class="n">Climb (m)</th></tr></thead>
+    <tbody>
+    {% for x in runs %}
+      <tr><td>{{ x.date|nice_date(true) }} <span class="muted">{{ x.date|days_ago }}</span></td>
+          <td><a href="https://www.strava.com/activities/{{ x.id }}" target="_blank" rel="noopener">{{ x.name }}</a></td>
+          <td class="n">{{ x.km|num }}</td><td class="n">{{ x.moving_time|duration }}</td><td class="n">{{ x.pace|pace }}</td>
+          <td class="n">{{ x.elevation|round|int if x.elevation is not none else "" }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% elif view == "settings" %}
+{% set st = strava %}
+{# Strava: read by a scraper that signs in as you (strava.py in _AUTOMATION/strava) #}
+<section class="panel strava-panel" data-strava-status{% if st.running %} data-running{% endif %}>
+  <h2>Strava</h2>
+  <form class="strava-profile" method="post" action="/workouts/strava/save" autocomplete="off">
+    <label>Your Strava profile <input name="profile" value="{{ 'https://www.strava.com/athletes/' ~ st.profile if st.profile else '' }}" placeholder="https://www.strava.com/athletes/12345678"></label>
+    <button class="btn">Save</button>
+  </form>
+  {% if st.athlete and st.profile and st.athlete != st.profile %}<p class="flash error">The Strava account signed in (strava.com/athletes/{{ st.athlete }}) isn't this profile.</p>{% endif %}
+  <p class="muted strava-state">
+    {% if st.running %}<b class="busy">{{ "Sign in in the Strava window (it closes by itself)…" if st.what == "login" else "Reading your activities…" }}</b>
+    {% elif st.synced %}Last read {{ st.synced }}: {{ st.error or st.said }}
+    {% else %}Not signed in yet.{% endif %}
+    {% if st.n %} · {{ st.n }} activit{{ "y" if st.n == 1 else "ies" }}, {{ st.runs }} run{{ "s" if st.runs != 1 }}{% if st.first %}, since {{ st.first|nice_date(true) }}{% endif %}{% endif %}
+  </p>
+  {% if not st.ready %}<p class="flash error">The scraper isn't set up on this computer yet.</p>{% endif %}
+  <div class="actions">
+    <form method="post" action="/workouts/strava/login"><button class="btn{{ ' primary' if not st.synced or st.error }}" title="Opens Strava in a browser window: sign in (Google works too); it closes by itself">Sign in to Strava</button></form>
+    <form method="post" action="/workouts/strava/sync"><button class="btn{{ ' primary' if st.synced and not st.error }}">Sync now</button></form>
+    <form method="post" action="/workouts/strava/sync"><input type="hidden" name="everything" value="1"><button class="btn ghost" title="Reads every activity again, and drops ones you deleted on Strava">Read everything again</button></form>
+  </div>
+</section>
 
 {% else %}
-<div class="tiles stats-tiles">
-  <div class="tile"><span class="tile-label">This week</span><span class="tile-value">{{ tiles.week or 0 }}</span></div>
-  <div class="tile"><span class="tile-label">This month</span><span class="tile-value">{{ tiles.month or 0 }}</span></div>
-  <div class="tile"><span class="tile-label">All workouts</span><span class="tile-value">{{ tiles.total or 0 }}</span></div>
-  <div class="tile"><span class="tile-label">Last workout</span><span class="tile-value small">{{ tiles.last|days_ago if tiles.last else "-" }}</span></div>
+{% set cal = calendar %}
+{% set rs = running %}
+{# Opening Stats syncs Strava when it's been a while (Workouts > Settings connects it) #}
+<div class="stats-page"{% if strava_on %} data-strava-sync{% endif %}>
+{% if rs %}
+{# Running, from Strava: the grey tiles first #}
+<div class="tiles stats-tiles run-tiles">
+  <div class="tile"><span class="tile-label">This month</span><span class="tile-value">{{ rs.month_km|num }} <small>km</small></span><span class="tile-note">{{ rs.month_runs }} run{{ "s" if rs.month_runs != 1 }}</span></div>
+  <div class="tile"><span class="tile-label">This year</span><span class="tile-value">{{ rs.year_km|num }} <small>km</small></span><span class="tile-note">{{ rs.year_runs }} run{{ "s" if rs.year_runs != 1 }}</span></div>
+  <div class="tile"><span class="tile-label">All time</span><span class="tile-value">{{ rs.total_km|num }} <small>km</small></span><span class="tile-note">{{ rs.total_runs }} run{{ "s" if rs.total_runs != 1 }}</span></div>
+  <div class="tile"><span class="tile-label">Longest run</span><span class="tile-value">{{ rs.longest.km|num }} <small>km</small></span><span class="tile-note">{{ rs.longest.date|nice_date(true) }}</span></div>
+  <div class="tile"><span class="tile-label">Fastest pace <small>(3 km+)</small></span><span class="tile-value">{% if rs.fastest %}{{ rs.fastest.pace|pace }} <small>/km</small>{% else %}-{% endif %}</span><span class="tile-note">{% if rs.fastest %}{{ rs.fastest.km|num }} km · {{ rs.fastest.date|nice_date(true) }}{% endif %}</span></div>
+  <div class="tile"><span class="tile-label">Pace, last 30 days</span><span class="tile-value">{% if rs.recent_pace %}{{ rs.recent_pace|pace }} <small>/km</small>{% else %}-{% endif %}</span></div>
 </div>
-
-<div class="charts">
-  <section class="panel wide">
-    <header class="chart-head">
-      <h2>{% if uncounted %}Days you did it{% elif bodyweight %}Most reps per workout{% else %}Heaviest set per workout{% endif %}</h2>
-      {% if exercises %}
-      <form method="get" class="inline-form">
-        <input type="hidden" name="view" value="stats">
-        <select name="exercise" aria-label="Exercise" onchange="this.form.submit()">
-          {% for e in exercises %}<option{% if e == exercise %} selected{% endif %}>{{ e }}</option>{% endfor %}
-        </select>
-      </form>
-      {% endif %}
+{% endif %}
+<div class="stats-cols">
+  <div class="stats-main">
+  {# A month at a glance: a filled day is a workout, showing its plan's icon and a shoe for a run (two icons:
+     side by side; a dot: more); days in a row are joined. The column on the right is each week; your
+     current week streak is the band in it, with the flame on its latest week. Click a day to see it. #}
+  <section class="panel cal-panel">
+    <header class="cal-head">
+      <a class="btn small ghost{% if not cal.prev %} disabled{% endif %}" {% if cal.prev %}href="?view=stats&amp;month={{ cal.prev }}"{% endif %} title="Previous month">‹</a>
+      <h2>{{ cal.title }}</h2>
+      <a class="btn small ghost{% if not cal.next %} disabled{% endif %}" {% if cal.next %}href="?view=stats&amp;month={{ cal.next }}"{% endif %} title="Next month">›</a>
     </header>
-    {% if uncounted %}
-    <p class="muted">Logged without reps or weight, so there's nothing to chart: {{ progress|length }} day{{ "s" if progress|length != 1 }}, last {{ progress[-1].date|days_ago }}.</p>
-    <ul class="plain-days">{% for p in progress|reverse %}<li><a href="?date={{ p.date }}">{{ p.date|nice_date(true) }}</a></li>{% endfor %}</ul>
-    {% else %}
-    {{ progress_chart }}
+    <div class="cal-summary">
+      <div><span class="tile-label"><span class="fire-glyph" aria-hidden="true"></span> Your streak</span><b>{{ cal.streak }} week{{ "s" if cal.streak != 1 }}</b></div>
+      <div><span class="tile-label">Workouts this month</span><b>{{ cal.workouts }}</b></div>
+    </div>
+    <div class="cal">
+      <div class="cal-row cal-weekdays" aria-hidden="true">{% for d in "MTWTFSS" %}<span>{{ d }}</span>{% endfor %}<span></span></div>
+      {% for r in cal.rows %}
+      <div class="cal-row">
+        {% for d in r.days %}
+        <span class="cal-cell{% if d and d.link_prev %} link-prev{% endif %}{% if d and d.link_next %} link-next{% endif %}">
+          {% if not d %}
+          {% elif d.future %}<span class="cal-day future">{{ d.day }}</span>
+          {% else %}<a class="cal-day{% if d.done %} done{% endif %}{% if d.icons %} has-icon{% endif %}{% if d.today %} today{% endif %}" href="?date={{ d.iso }}"
+               title="{{ d.iso|nice_date(true) }}{% if d.plan %} · {{ d.plan }}{% endif %}{% if d.done %}: {{ d.what }}{% endif %}">{% if d.icons|length > 1 %}<span class="cal-two">{{ px(d.icons[0]) }}{{ px(d.icons[1]) }}</span>{% elif d.icons %}{{ px(d.icons[0]) }}{% else %}{{ d.day }}{% endif %}{% if d.more %}<i class="cal-dot"></i>{% endif %}</a>{% endif %}
+        </span>
+        {% endfor %}
+        <span class="cal-week{% if r.streak %} streak{% endif %}{% if r.band_start %} band-start{% endif %}{% if r.band_end %} band-end{% endif %}">
+          {% if r.flame %}<span class="flame" title="{{ cal.streak }} week{{ 's' if cal.streak != 1 }} in a row"><span class="fire-glyph" aria-hidden="true"></span><b>{{ cal.streak }}</b></span>
+          {% elif r.trained %}<span class="week-mark check" title="A workout this week"></span>
+          {% else %}<span class="week-mark{% if r.future %} later{% endif %}"></span>{% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  </div>
+
+  <div class="stats-side">
+    <section class="panel">
+      <h2>Favourite training days</h2>
+      {# Days trained per weekday, all time: the brighter, the more (the number is the count) #}
+      <div class="heat">
+        {% for w in weekdays %}
+        <div class="heat-day"><span class="heat-letter" aria-hidden="true">{{ w.letter }}</span>
+          <span class="heat-cell lvl-{{ w.level }}" data-tip-v="{{ w.n }} day{{ 's' if w.n != 1 }}" data-tip-l="{{ w.name }}s" tabindex="0">{{ w.n }}</span></div>
+        {% endfor %}
+      </div>
+      <div class="heat-key" aria-hidden="true"><span>fewer</span>{% for l in range(5) %}<i class="lvl-{{ l }}"></i>{% endfor %}<span>more</span></div>
+    </section>
+    {% if rs %}
+    <section class="panel">
+      <h2>Distance per week <span class="muted">from Strava</span></h2>
+      {{ rs.weekly_chart }}
+    </section>
     {% endif %}
-    {% if progress and not uncounted %}
-    <details class="table-view"><summary>Table</summary>
-      <table><thead><tr><th>Date</th><th class="n">Sets</th><th class="n">Heaviest (kg)</th><th class="n">Most reps</th><th class="n">Est. 1RM (kg)</th></tr></thead>
-      <tbody>{% for p in progress|reverse %}<tr><td>{{ p.date|nice_date(true) }}</td><td class="n">{{ p.sets or "" }}</td><td class="n">{{ p.heaviest|num }}</td><td class="n">{{ p.most_reps or "" }}</td><td class="n">{{ p.est_1rm|num }}</td></tr>{% endfor %}</tbody></table>
-    </details>
-    {% endif %}
-  </section>
-
-  <section class="panel">
-    <h2>Workouts per week</h2>
-    {{ weekly_chart }}
-    <details class="table-view"><summary>Table</summary>
-      <table><thead><tr><th>Week of</th><th class="n">Workouts</th></tr></thead>
-      <tbody>{% for label, v in weekly|reverse %}<tr><td>{{ label }}</td><td class="n">{{ v[0] }}</td></tr>{% endfor %}</tbody></table>
-    </details>
-  </section>
-
-  <section class="panel">
-    <h2>Volume per workout</h2>
-    {% if volume %}{{ volume_chart }}
-    <details class="table-view"><summary>Table</summary>
-      <table><thead><tr><th>Date</th><th class="n">Sets</th><th class="n">Volume (kg)</th></tr></thead>
-      <tbody>{% for v in volume|reverse %}<tr><td>{{ v.date|nice_date(true) }}</td><td class="n">{{ v.sets }}</td><td class="n">{{ v.volume|num }}</td></tr>{% endfor %}</tbody></table>
-    </details>
-    {% else %}<p class="empty">Nothing logged yet.</p>{% endif %}
-  </section>
-
-  <section class="panel wide">
-    <h2>Personal records</h2>
-    {% if records %}
-    <table>
-      <thead><tr><th>Exercise</th><th class="n">Heaviest (kg)</th><th class="n">Reps at heaviest</th><th class="n">Est. 1RM (kg)</th><th class="n">Workouts</th><th class="n">Sets</th><th>Last done</th></tr></thead>
-      <tbody>{% for r in records %}<tr><td><a href="?view=stats&amp;exercise={{ r.exercise|urlencode }}">{{ r.exercise }}</a></td><td class="n">{{ r.heaviest|num if r.heaviest or r.sets else "" }}</td><td class="n">{{ r.reps_at_heaviest or "" }}</td><td class="n">{{ r.est_1rm|num if r.est_1rm is not none else "" }}</td><td class="n">{{ r.workouts }}</td><td class="n">{{ r.sets or "" }}</td><td>{{ r.last_done|nice_date }}</td></tr>{% endfor %}</tbody>
-    </table>
-    {% else %}<p class="empty">Nothing logged yet.</p>{% endif %}
-  </section>
+  </div>
+</div>
+{% if not rs and not strava_on %}
+<p class="muted small-print running-hint">Running stats come from Strava: connect it on <a href="?view=settings">Settings</a>.</p>
+{% endif %}
 </div>
 {% endif %}
 {% endblock %}

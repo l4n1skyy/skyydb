@@ -17,6 +17,8 @@ Usage:
                              feature you drop stays in its file, just hidden.
   skyydb features            which features are installed
   skyydb backup              copy the databases into backups/ now
+  skyydb strava [all|login]  read your new Strava activities now ("all": every one again;
+                             "login": a browser window to sign in to Strava first)
   skyydb status              is Datasette running, and a line about each database
   skyydb autostart           start Datasette whenever you log in (a systemd user service)
   skyydb autostart off       stop doing that
@@ -34,6 +36,9 @@ import sqlite3
 import subprocess
 import sys
 import time
+import json
+import urllib.error
+import urllib.parse
 import urllib.request
 from collections import Counter
 from datetime import date, datetime
@@ -155,6 +160,29 @@ def knowledge_to_thoughts():
     old.rename(new)
 
 
+def category_flags(conn):
+    """Finance categories got "daily" and "monthly" (2026-11-21): add them; daily starts as the old
+    Spent per day picks, or the daily budget's categories"""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(categories)")]
+    if not cols or "daily" in cols:
+        return
+    conn.execute("ALTER TABLE categories ADD COLUMN daily INTEGER NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE categories ADD COLUMN monthly INTEGER NOT NULL DEFAULT 1")
+    picked = conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'daily_chart_categories'").fetchone() and \
+        conn.execute("SELECT count(*) FROM daily_chart_categories").fetchone()[0]
+    source = "SELECT category FROM daily_chart_categories" if picked else "SELECT category FROM budget WHERE period = 'daily'"
+    conn.execute(f"UPDATE categories SET daily = 1 WHERE name IN ({source})")
+    conn.commit()
+
+
+def plan_icons(conn):
+    """Workout plans got an icon (2026-11-21): add the column to plans made before"""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(plans)")]
+    if cols and "icon" not in cols:
+        conn.execute("ALTER TABLE plans ADD COLUMN icon TEXT NOT NULL DEFAULT ''")
+        conn.commit()
+
+
 def connect(name):
     if not DB_DIR.is_dir():
         die(f"{DB_DIR} doesn't exist (is the drive it lives on mounted?)")
@@ -165,6 +193,9 @@ def connect(name):
     conn.row_factory = sqlite3.Row
     if name == "workouts":
         optional_reps(conn)
+        plan_icons(conn)
+    if name == "finance":
+        category_flags(conn)
     # Create anything missing and rebuild views/triggers from schema/<name>.sql
     conn.executescript((DB_DIR / "schema" / f"{name}.sql").read_text())
     return conn
@@ -537,6 +568,18 @@ def install(names):
         print("Run `skyydb` to start it.")
 
 
+STRAVA_PROJECT = Path.home() / "Shared/03_AREAS/_AUTOMATION/strava"
+STRAVA_PYTHON = Path.home() / ".local/share/venvs/strava/bin/python"
+
+
+def strava(args):
+    """Run the Strava scraper: sync (default), "all" (every activity again) or "login" (a browser window to sign in)."""
+    if not STRAVA_PYTHON.exists():
+        die(f"The Strava scraper isn't set up: see {STRAVA_PROJECT}/README.md")
+    cmd = ["login"] if args[:1] == ["login"] else ["sync", "--all"] if args[:1] == ["all"] else ["sync"]
+    sys.exit(subprocess.run([str(STRAVA_PYTHON), "-I", str(STRAVA_PROJECT / "strava.py"), *cmd], cwd=STRAVA_PROJECT).returncode)
+
+
 def features():
     on = installed()
     for f in ALL_FEATURES:
@@ -565,6 +608,8 @@ def main(args):
         sync()
     elif cmd == "import" and len(args) == 2:
         import_file(args[1])
+    elif cmd == "strava":
+        strava(args[1:])
     elif cmd == "backup":
         made = backup(force=True)
         print(f"Backed up into {DB_DIR / 'backups'}: {', '.join(made)}")

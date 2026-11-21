@@ -9,7 +9,7 @@ settings:
   default_page_size: 50
 
 # Datasette's own pages in the app's colours (static/datasette.css, served by plugins/app.py)
-extra_css_urls: [/-/app/datasette.css]
+extra_css_urls: [/theme/datasette.css]
 
 # Lets you add, edit and delete rows from the table pages
 permissions:
@@ -36,6 +36,10 @@ databases:
         sort_desc: id
         facets: [exercise, date]
       exercises: {hidden: true}
+      settings: {hidden: true}
+      strava_activities:
+        sort_desc: start
+        facets: [sport]
   finance:
     tables:
       expenses:
