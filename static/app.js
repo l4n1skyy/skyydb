@@ -272,6 +272,54 @@ function initPage() {
   const stravaStatus = $("[data-strava-status][data-running]");
   if (stravaStatus) stravaWatch(stravaStatus, null);
 
+  // --- History > Runs: search by name, pick a period, sort with the menu or by clicking a
+  // column's heading (again flips it); the count and distance at the top follow what's shown
+
+  for (const box of $$("[data-run-history]")) {
+    const tbody = $("tbody", box), rows = $$("tr", tbody), heads = $$("th[data-key]", box);
+    const search = $("[data-run-search]", box), period = $("[data-run-period]", box), sortBy = $("[data-run-sort]", box);
+    const count = $("[data-run-count]", box), none = $("[data-run-none]", box);
+    const today = box.dataset.today, day = (iso) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+    let key = "date", dir = -1;
+    const shown = (r) => {
+      const p = period.value, d = r.dataset.date, q = search.value.trim().toLowerCase();
+      const inPeriod = !p || (p === "30d" ? (day(today) - day(d)) / 864e5 <= 30 : p === "month" ? d.slice(0, 7) === today.slice(0, 7) : d.startsWith(p));
+      return inPeriod && (!q || r.dataset.name.includes(q));
+    };
+    const update = () => {
+      const text = key === "date" || key === "name";
+      const sorted = rows.slice().sort((a, b) => {
+        const x = a.dataset[key], y = b.dataset[key];
+        return (text ? x.localeCompare(y) : x - y) * dir || b.dataset.date.localeCompare(a.dataset.date);
+      });
+      let n = 0, km = 0;
+      for (const r of sorted) {
+        r.hidden = !shown(r);
+        if (!r.hidden) { n++; km += +r.dataset.km; }
+        tbody.append(r);
+      }
+      count.textContent = `${n} run${n === 1 ? "" : "s"} · ${km.toFixed(1)} km`;
+      none.hidden = n > 0;
+      for (const th of heads) th.setAttribute("aria-sort", th.dataset.key === key ? (dir > 0 ? "ascending" : "descending") : "none");
+      sortBy.value = `${key}:${dir}`;
+    };
+    for (const th of heads) {
+      $("button", th).addEventListener("click", () => {
+        if (th.dataset.key === key) dir = -dir;
+        else { key = th.dataset.key; dir = key === "name" || key === "pace" ? 1 : -1; }  // A-Z, fastest, else biggest / newest first
+        update();
+      });
+    }
+    sortBy.addEventListener("change", () => {
+      [key, dir] = sortBy.value.split(":");
+      dir = +dir;
+      update();
+    });
+    search.addEventListener("input", update);
+    period.addEventListener("change", update);
+    update();
+  }
+
   // --- Stats > Distance per week: pointing anywhere over a week (or tabbing to its ring) shows
   // that week's distance, time and climb on top; it stays chosen until you point at another
 

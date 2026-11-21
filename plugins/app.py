@@ -1098,6 +1098,7 @@ async def workouts(request, datasette):
     elif view == "history":
         ctx["history"] = await rows(wo, "SELECT * FROM workouts LIMIT 100")
         ctx["runs"] = await rows(wo, "SELECT * FROM strava_runs")  # newest first
+        ctx["run_years"] = sorted({r["date"][:4] for r in ctx["runs"]}, reverse=True)  # for the runs' period filter
     elif view == "settings":
         ctx["strava"] = await strava_panel(wo)
     else:

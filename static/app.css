@@ -1241,8 +1241,23 @@ a.cal-day:hover { border-color: var(--accent); }
 .heat-key i { width: 12px; height: 12px; border-radius: 50%; box-sizing: border-box; }
 .heat-key span:first-child { margin-right: 4px; }
 .heat-key span:last-child { margin-left: 4px; }
-/* History > Runs */
+/* History: workouts and runs side by side (one under the other on a narrow screen) */
+.history-cols { display: grid; gap: 20px; align-items: start; }
+.history-cols.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 1000px) { .history-cols.two { grid-template-columns: minmax(0, 1fr); } }
+.history-col { min-width: 0; }
+.history-col > .section-head { margin-top: 0; }
+.history td.when { white-space: nowrap; }
 .history.runs td:nth-child(2) { overflow-wrap: anywhere; }
+/* Runs: search, a period, and a sort (the menu, or click a column's heading; again to flip) */
+.run-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.run-filters input[type=search] { flex: 1 1 10em; min-width: 0; }
+.run-count { flex-basis: 100%; text-align: right; font-size: 0.85rem; white-space: nowrap; }  /* its own line, under the controls */
+.history.runs th button { all: unset; cursor: pointer; white-space: nowrap; }
+.history.runs th button:hover, .history.runs th[aria-sort=ascending] button, .history.runs th[aria-sort=descending] button { color: var(--text); }
+.history.runs th button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.history.runs th[aria-sort=ascending] button::after { content: " ▲"; font-size: 0.7em; }
+.history.runs th[aria-sort=descending] button::after { content: " ▼"; font-size: 0.7em; }
 
 /* Distance per week, after Strava's weekly card: the chosen week on top, a line with a soft fill
    below, a ring per week (the chosen one filled, with a halo and a line down to the base) */

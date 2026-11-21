@@ -277,36 +277,76 @@
 {% endif %}
 
 {% elif view == "history" %}
-<section class="panel">
-  {% if history %}
-  <table class="history">
-    <thead><tr><th>Date</th><th>Exercises</th><th class="n">Sets</th><th class="n">Reps</th><th class="n">Volume (kg)</th></tr></thead>
-    <tbody>
-    {% for h in history %}
-      <tr><td><a href="?date={{ h.date }}">{{ h.date|nice_date(true) }}</a> <span class="muted">{{ h.date|days_ago }}</span></td>
-          <td>{{ h.exercises }}</td><td class="n">{{ h.sets or "" }}</td><td class="n">{{ h.reps or "" }}</td><td class="n">{{ h.volume|num if h.volume else "" }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% else %}<p class="empty">No workouts yet. <a href="?view=log">Log your first one</a>.</p>{% endif %}
-</section>
-{% if runs %}
-{# Every run from Strava, newest first (Workouts > Settings keeps them synced) #}
-<h2 class="section-head">Runs <span class="muted">from Strava</span></h2>
-<section class="panel">
-  <table class="history runs">
-    <thead><tr><th>Date</th><th>Run</th><th class="n">km</th><th class="n">Time</th><th class="n">Pace (/km)</th><th class="n">Climb (m)</th></tr></thead>
-    <tbody>
-    {% for x in runs %}
-      <tr><td>{{ x.date|nice_date(true) }} <span class="muted">{{ x.date|days_ago }}</span></td>
-          <td><a href="https://www.strava.com/activities/{{ x.id }}" target="_blank" rel="noopener">{{ x.name }}</a></td>
-          <td class="n">{{ x.km|num }}</td><td class="n">{{ x.moving_time|duration }}</td><td class="n">{{ x.pace|pace }}</td>
-          <td class="n">{{ x.elevation|round|int if x.elevation is not none else "" }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</section>
-{% endif %}
+{# Workouts and runs side by side; the runs can be searched, narrowed to a period and sorted by any column #}
+<div class="history-cols{% if runs %} two{% endif %}">
+  <section class="history-col">
+    <h2 class="section-head">Workouts</h2>
+    <div class="panel">
+      {% if history %}
+      <table class="history">
+        <thead><tr><th>Date</th><th>Exercises</th><th class="n">Sets</th><th class="n">Reps</th><th class="n">Volume (kg)</th></tr></thead>
+        <tbody>
+        {% for h in history %}
+          <tr><td class="when"><a href="?date={{ h.date }}">{{ h.date|nice_date(true) }}</a></td>
+              <td>{{ h.exercises }}</td><td class="n">{{ h.sets or "" }}</td><td class="n">{{ h.reps or "" }}</td><td class="n">{{ h.volume|num if h.volume else "" }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}<p class="empty">No workouts yet. <a href="?view=log">Log your first one</a>.</p>{% endif %}
+    </div>
+  </section>
+  {% if runs %}
+  <section class="history-col">
+    <h2 class="section-head">Runs <span class="muted">from Strava</span></h2>
+    <div class="panel run-history" data-run-history data-today="{{ today }}">
+      <div class="run-filters">
+        <input type="search" placeholder="Search runs" aria-label="Search runs" data-run-search>
+        <select aria-label="Which runs" data-run-period>
+          <option value="">All time</option>
+          <option value="30d">Last 30 days</option>
+          <option value="month">This month</option>
+          {% for y in run_years %}<option value="{{ y }}">{{ y }}</option>{% endfor %}
+        </select>
+        <select aria-label="Sort runs" data-run-sort>
+          <option value="date:-1">Newest first</option>
+          <option value="date:1">Oldest first</option>
+          <option value="km:-1">Longest distance</option>
+          <option value="km:1">Shortest distance</option>
+          <option value="time:-1">Longest time</option>
+          <option value="time:1">Shortest time</option>
+          <option value="pace:1">Fastest pace</option>
+          <option value="pace:-1">Slowest pace</option>
+          <option value="climb:-1">Most climb</option>
+          <option value="climb:1">Least climb</option>
+          <option value="name:1">Name, A to Z</option>
+          <option value="name:-1">Name, Z to A</option>
+        </select>
+        <span class="muted run-count" data-run-count>{{ runs|length }} runs</span>
+      </div>
+      <table class="history runs">
+        <thead><tr>
+          <th data-key="date" aria-sort="descending"><button type="button">Date</button></th>
+          <th data-key="name" aria-sort="none"><button type="button">Run</button></th>
+          <th class="n" data-key="km" aria-sort="none"><button type="button">km</button></th>
+          <th class="n" data-key="time" aria-sort="none"><button type="button">Time</button></th>
+          <th class="n" data-key="pace" aria-sort="none"><button type="button">Pace</button></th>
+          <th class="n" data-key="climb" aria-sort="none"><button type="button">Climb (m)</button></th>
+        </tr></thead>
+        <tbody>
+        {% for x in runs %}
+          <tr data-date="{{ x.date }}" data-name="{{ x.name|lower }}" data-km="{{ x.km }}" data-time="{{ x.moving_time or 0 }}" data-pace="{{ x.pace or 99999 }}" data-climb="{{ x.elevation or 0 }}">
+            <td class="when">{{ x.date|nice_date(true) }}</td>
+            <td><a href="https://www.strava.com/activities/{{ x.id }}" target="_blank" rel="noopener">{{ x.name }}</a></td>
+            <td class="n">{{ x.km|num }}</td><td class="n">{{ x.moving_time|duration }}</td><td class="n">{{ x.pace|pace }}</td>
+            <td class="n">{{ x.elevation|round|int if x.elevation is not none else "" }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <p class="empty" data-run-none hidden>No runs match.</p>
+    </div>
+  </section>
+  {% endif %}
+</div>
 
 {% elif view == "settings" %}
 {% set st = strava %}
