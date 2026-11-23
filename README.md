@@ -4,7 +4,7 @@ A small local web app for personal trackers, each a SQLite database, fully local
 
 Choose what you like, leave what you dont 😛 also p.s. lowkey vibecoded but still useful la
 
-ALSO! fun fact, lots of scraping and apis yummmm. Scrapes sunway elearn/outlook email, and strava. Api connection with wise and ibkr for investments. ZenQuotes api for cool quotes and stuff.
+ALSO! fun fact, lots of scraping and apis yummmm. Scrapes sunway elearn/outlook email, and strava. Api connection with wise and ibkr for investments. ZenQuotes api for cool quotes and stuff. And it talks to Obsidian: jot expenses in your daily notes, and your workout plans get copied into a note.
 
 <div align="center">
   <h4>Built with ❤️ by <b>l4n1skyy (and mr. claude)</b></h4>
@@ -23,6 +23,7 @@ ALSO! fun fact, lots of scraping and apis yummmm. Scrapes sunway elearn/outlook 
 - [Strava](#strava)
 - [eLearn and Outlook](#elearn-and-outlook)
 - [Expenses from Obsidian](#expenses-from-obsidian)
+- [Plans in Obsidian](#plans-in-obsidian)
 - [Commands](#commands)
 - [Credits](#credits)
 
@@ -44,7 +45,7 @@ ALSO! fun fact, lots of scraping and apis yummmm. Scrapes sunway elearn/outlook 
 
 - **Home**: today's date, a quote of the day, today's HSK words, your workout streaks and today's plan, what's left of today's budget, and your next Work tasks.
 - **HSK**: Chinese words in three lists (to learn, to revise, learnt). Learnt words come back to revise after a week by themselves.
-- **Workouts**: log sets (several at once, or a whole plan in one go), make plans with their own icons and put them on days of the week. Stats has a month calendar with your plan icons, a shoe on run days and your week streak, which days you train most, and your running from Strava. History lists every workout and every run. Any list (a plan's exercises, a day's log) reorders by dragging the dash handle on the right of each row.
+- **Workouts**: log sets (several at once, or a whole plan in one go), make plans with their own icons and put them on days of the week. Stats has a month calendar with your plan icons, a shoe on run days and your week streak, which days you train most, and your running from Strava. History lists every workout and every run. Your plans can also be copied into an Obsidian note ([Plans in Obsidian](#plans-in-obsidian)). Any list (a plan's exercises, a day's log) reorders by dragging the dash handle on the right of each row.
 - **Finance**: expenses against a daily and a monthly budget (with a pie of where it went), savings balances by month, and your investments (read from Interactive Brokers and Wise if you connect them). Expenses can also be jotted in your Obsidian daily notes and logged with one command ([Expenses from Obsidian](#expenses-from-obsidian)).
 - **Work**: deadlines and tasks per course, with priorities; with `elearn` installed also an Announcements tab that reads Sunway University's eLearn and Outlook.
 - **Quotes** and **Thoughts**: little notebooks with tags.
@@ -161,6 +162,10 @@ mkdir -p "<your vault>/.obsidian/plugins/skyydb"
 cp obsidian/main.js obsidian/manifest.json "<your vault>/.obsidian/plugins/skyydb/"
 ```
 
+## Plans in Obsidian
+
+On **Workouts → Settings**, under **Plans in Obsidian**, give the path of a note in your vault (`~/Notes/Workouts.md`, say; it's made if it isn't there yet). Every plan is written into it: a `# heading` per plan, its notes, then a table of its exercises with the columns that plan fills in (sets, reps, weight, notes). The note is rewritten whenever you add, save, reorder or delete a plan (on the Plans tab or on the raw data pages) and when the app starts. Only the part between its two `%%` marker lines is the app's, so the note's properties and anything you write above or below them stay. Change plans in skyydb: edits inside that part get overwritten.
+
 ## Commands
 
 | Command | What it does |
@@ -170,6 +175,7 @@ cp obsidian/main.js obsidian/manifest.json "<your vault>/.obsidian/plugins/skyyd
 | `skyydb features` | Lists which features are installed |
 | `skyydb status` | Shows whether it's running and a summary of your data |
 | `skyydb import FILE` | Imports Chinese words from a CSV, or finance data from Google Sheets exports |
+| `skyydb sync` | Moves learnt HSK words you haven't studied for a while back to "to revise" (also done by itself while the app runs) |
 | `skyydb backup` | Copies the databases into `backups/` (also done once a day, keeping 14) |
 | `skyydb strava [all\|login]` | Reads your new Strava activities (`all`: every one again; `login`: sign in first) |
 | `skyydb restart` / `skyydb stop` | Restarts or stops the app (restart after editing `plugins/app.py`) |

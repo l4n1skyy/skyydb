@@ -83,6 +83,11 @@ def startup(datasette):
             db.route = f"{name}-db"
 
     async def inner():
+        if "workouts" in FEATURES:
+            try:  # catch up on plans changed while the app was off
+                await update_plans_note(datasette.get_database("workouts"))
+            except Exception as e:
+                print(f"app: plans note failed: {e}")
         if "chinese" not in FEATURES:
             return
         await sync(datasette)
@@ -1101,6 +1106,9 @@ async def workouts(request, datasette):
         ctx["run_years"] = sorted({r["date"][:4] for r in ctx["runs"]}, reverse=True)  # for the runs' period filter
     elif view == "settings":
         ctx["strava"] = await strava_panel(wo)
+        s = await workout_settings(wo)
+        ctx["obsidian"] = dict(note=s.get("obsidian_note", ""), written=s.get("obsidian_written", ""),
+                               error=s.get("obsidian_error", ""))
     else:
         ctx.update(await workout_stats(wo, request.args.get("month")))
         ctx["running"] = await running_stats(wo)
@@ -1410,7 +1418,8 @@ async def plan_save(request, datasette):
     except Exception as e:
         reason = "there's already a plan with that name" if "UNIQUE" in str(e) else str(e)
         return back("/workouts", view="plans", plan=plan_id or "new", error=f"Couldn't save {name}: {reason}.")
-    return back("/workouts", view="plans",
+    problem = await update_plans_note(datasette.get_database("workouts"))
+    return back("/workouts", view="plans", error=problem and f"Saved {name}, but the Obsidian note: {problem}",
                 msg=f"Saved {name} ({len(exercises)} exercise{'s' * (len(exercises) != 1)})." if exercises else f"Saved {name}.")
 
 
@@ -1418,9 +1427,12 @@ async def plan_delete(request, datasette):
     form = await request.post_vars()
     wo = datasette.get_database("workouts")
     plan = await one(wo, "SELECT id, name FROM plans WHERE id = :id", {"id": form.get("id")})
+    problem = ""
     if plan:
         await wo.execute_write("DELETE FROM plans WHERE id = ?", [plan["id"]])
-    return back("/workouts", view="plans", msg=f"Deleted {plan['name']}." if plan else None)
+        problem = await update_plans_note(wo)
+    return back("/workouts", view="plans", msg=f"Deleted {plan['name']}." if plan else None,
+                error=problem and f"The Obsidian note: {problem}")
 
 
 async def plan_order(request, datasette):
@@ -1437,8 +1449,142 @@ async def plan_order(request, datasette):
         conn.executemany("UPDATE plan_exercises SET position = ? WHERE id = ? AND plan_id = ?",
                          [(i + 1, row_id, int(plan_id)) for i, row_id in enumerate(ids)])
 
-    await datasette.get_database("workouts").execute_write_fn(write)
+    wo = datasette.get_database("workouts")
+    await wo.execute_write_fn(write)
+    await update_plans_note(wo)
     return Response.json({"ok": True})
+
+
+# --- Plans in Obsidian ---------------------------------------------------------------
+#
+# Workouts > Settings can name a note in your Obsidian vault. Whenever a plan is added, saved,
+# reordered or deleted (here, or on its raw Datasette pages), and when the app starts, every
+# plan is written into that note: a # heading per plan, then a table of its exercises. Only
+# the part between the two %% lines is the app's; the note's properties and anything you
+# write around them stay as they are.
+
+PLANS_NOTE_START = "%% skyydb plans: change them in skyydb, this part gets rewritten %%"
+PLANS_NOTE_END = "%% end of skyydb plans %%"
+PLANS_NOTE_TABLES = ("plans", "plan_exercises", "exercises")
+
+
+def md_cell(value):
+    """Text that stays inside one Markdown table cell"""
+    return re.sub(r"\s*\n\s*", "<br>", str(value).strip()).replace("|", "\\|")
+
+
+def plans_markdown(plans):
+    parts = []
+    for p in plans:
+        parts.append(f"# {p['name'].strip()}")
+        if p["notes"].strip():
+            parts.append(p["notes"].strip())
+        ex = p["exercises"]
+        if not ex:
+            if not p["notes"].strip():
+                parts.append("_Just the name, no exercise list._")
+            continue
+        # The columns this plan fills in
+        columns = [("Exercise", lambda e: e["exercise"])]
+        if any(e["sets"] for e in ex):
+            columns.append(("Sets", lambda e: e["sets"] or ""))
+        if any(e["reps"] for e in ex):
+            columns.append(("Reps", lambda e: e["reps"]))
+        if any(e["weight"] is not None for e in ex):
+            columns.append(("Weight", lambda e: f"{num(e['weight'])} kg" if e["weight"] is not None else ""))
+        if any(e["notes"] for e in ex):
+            columns.append(("Notes", lambda e: e["notes"]))
+        lines = ["| " + " | ".join(head for head, _ in columns) + " |",
+                 "|" + "|".join(" --- " for _ in columns) + "|"]
+        lines += ["| " + " | ".join(md_cell(cell(e)) for _, cell in columns) + " |" for e in ex]
+        parts.append("\n".join(lines))
+    return "\n\n".join(parts) if parts else "_No plans yet._"
+
+
+def note_file(value):
+    return Path(os.path.expanduser(value.strip())) if (value or "").strip() else None
+
+
+def write_plans_note(path, block, create=False):
+    """Put the plans into the note, between its markers (added at the end the first time).
+    Returns (changed, problem)."""
+    if path.suffix.lower() != ".md":
+        return False, f"{path.name} isn't a Markdown note (.md)."
+    if not path.parent.is_dir():
+        return False, f"There's no folder {path.parent}."
+    if not path.exists() and not create:
+        return False, f"{path} isn't there any more (renamed or moved?). Set it again on Workouts → Settings."
+    try:
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        section = f"{PLANS_NOTE_START}\n\n{block}\n\n{PLANS_NOTE_END}"
+        start = re.search(r"^%% skyydb plans\b[^\n]*%%[ \t]*$", text, re.M)
+        end = start and re.search(rf"^{re.escape(PLANS_NOTE_END)}[ \t]*$", text[start.end():], re.M)
+        if start and end:
+            new = text[:start.start()] + section + text[start.end() + end.end():]
+        else:
+            new = text.rstrip("\n") + ("\n\n" if text.strip() else "") + section + "\n"
+        if new == text:
+            return False, ""
+        # Written next to it, then swapped in, so Obsidian never reads half a note (dot files
+        # are invisible to Obsidian and its sync)
+        tmp = path.with_name(f".{path.name}.skyydb")
+        tmp.write_text(new, encoding="utf-8")
+        os.replace(tmp, path)
+        return True, ""
+    except (OSError, UnicodeError) as e:
+        return False, f"Couldn't write {path.name}: {e.strerror or e}."
+
+
+async def update_plans_note(wo, create=False):
+    """Rewrite the plans note if one is set; returns what went wrong ("" when nothing did)"""
+    s = await workout_settings(wo)
+    path = note_file(s.get("obsidian_note", ""))
+    if not path:
+        return ""
+    block = plans_markdown(await all_plans(wo))
+    changed, problem = await asyncio.to_thread(write_plans_note, path, block, create)
+    status = {"obsidian_error": problem}
+    if changed or (create and not problem):
+        status["obsidian_written"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    if any(s.get(k, "") != v for k, v in status.items()):
+        await save_workout_settings(wo, **status)
+    return problem
+
+
+async def obsidian_save(request, datasette):
+    """Workouts > Settings: the note your plans go into (empty = stop writing it)"""
+    if request.method != "POST":
+        return back("/workouts", view="settings")
+    form = await request.post_vars()
+    note = form.get("note", "").strip()
+    path = note_file(note)
+    if path and path.suffix.lower() != ".md":
+        return back("/workouts", view="settings", error=f"{path.name} isn't a Markdown note (.md).")
+    if path and not path.parent.is_dir():
+        return back("/workouts", view="settings", error=f"There's no folder {path.parent}.")
+    wo = datasette.get_database("workouts")
+    await save_workout_settings(wo, obsidian_note=note, obsidian_error="", obsidian_written="")
+    if not note:
+        return back("/workouts", view="settings", msg="Plans aren't written to Obsidian any more.")
+    problem = await update_plans_note(wo, create=True)
+    if problem:
+        return back("/workouts", view="settings", error=problem)
+    return back("/workouts", view="settings", msg=f"Your plans are in {note_file(note).name} now.")
+
+
+@hookimpl
+def track_event(datasette, event):
+    """A plan changed on its raw Datasette pages: the note follows"""
+    if getattr(event, "database", None) != "workouts" or getattr(event, "table", None) not in PLANS_NOTE_TABLES:
+        return None
+
+    async def inner():
+        try:
+            await update_plans_note(datasette.get_database("workouts"))
+        except Exception as e:  # never break Datasette's own save over it
+            print(f"app: plans note failed: {e}")
+
+    return inner()
 
 
 async def day_order_save(request, datasette):
@@ -4064,6 +4210,7 @@ ROUTES = {
         (r"^/workouts/strava/login$", strava_login),
         (r"^/workouts/strava/sync$", strava_sync_route),
         (r"^/workouts/strava/status$", strava_status),
+        (r"^/workouts/obsidian/save$", obsidian_save),
     ],
     "finance": [
         (r"^/finance$", finance),

@@ -1220,6 +1220,7 @@ a.cal-day:hover { border-color: var(--accent); }
 .strava-panel h2, .strava-panel p { margin: 0; }
 .strava-panel .actions { margin-top: 4px; }
 .strava-panel .actions form { display: inline; }
+.strava-panel + .obsidian-panel { margin-top: 20px; }
 /* Work > Settings: eLearn and Outlook sign-in */
 .elearn-login { margin-top: 20px; display: flex; flex-direction: column; gap: 12px; }
 .elearn-login h2, .elearn-login p { margin: 0; }

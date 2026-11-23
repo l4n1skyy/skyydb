@@ -372,6 +372,18 @@
   </div>
 </section>
 
+{# Plans in Obsidian: every plan is written into this note whenever one changes #}
+{% set ob = obsidian %}
+<section class="panel strava-panel obsidian-panel">
+  <h2>Plans in Obsidian</h2>
+  <form class="strava-profile" method="post" action="/workouts/obsidian/save" autocomplete="off">
+    <label>Note your plans go into <input name="note" value="{{ ob.note }}" placeholder="~/Notes/Workouts.md" spellcheck="false"></label>
+    <button class="btn">Save</button>
+  </form>
+  {% if ob.error %}<p class="flash error">{{ ob.error }}</p>
+  {% else %}<p class="muted">{% if not ob.note %}Not set: your plans stay in skyydb only.{% else %}Rewritten whenever you add, change or delete a plan{% if ob.written %} · last written {{ ob.written[:10]|nice_date(true) }}, {{ ob.written[11:] }}{% endif %}.{% endif %}</p>{% endif %}
+</section>
+
 {% else %}
 {% set cal = calendar %}
 {% set rs = running %}
