@@ -49,6 +49,8 @@ ALSO! fun fact, lots of scraping and apis yummmm. Scrapes sunway elearn/outlook 
 - **Work**: deadlines and tasks per course, with priorities; with `elearn` installed also an Announcements tab that reads Sunway University's eLearn and Outlook.
 - **Quotes** and **Thoughts**: little notebooks with tags.
 
+Keys: Tab and Shift+Tab move between fields and buttons, as on any web page (pages are picked from the top menu). In the workout log form, Enter steps from the exercise to reps, weight and the next set, and Ctrl+Enter logs it. A drag handle with focus moves its row with the up and down arrow keys.
+
 ## Install
 
 ### 1. Requirements

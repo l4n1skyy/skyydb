@@ -4,18 +4,6 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
-// --- Tab / Shift+Tab cycles through the pages in the top menu (even from a form field)
-
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Tab" || e.ctrlKey || e.altKey || e.metaKey || e.defaultPrevented) return;
-  const links = $$(".main-nav a");
-  if (!links.length) return;
-  const i = links.findIndex((a) => a.getAttribute("aria-current") === "page");
-  const next = links[(i + (e.shiftKey ? -1 : 1) + links.length) % links.length];
-  e.preventDefault();
-  go(next.href);
-});
-
 // --- Chart tooltips: any element with data-tip-v (value) and data-tip-l (label)
 
 const tip = $("#tip");
