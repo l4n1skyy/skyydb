@@ -104,7 +104,12 @@ def main():
                                                        chromium_sandbox=True, viewport={"width": 1400, "height": 900})
             try:
                 user, pw = elearn.credentials()
-                step("mail", lambda: outlook.save_mail(outlook.read_inbox(outlook.open_inbox(ctx, user, pw))))
+                def mail():
+                    page = outlook.open_inbox(ctx, user, pw)
+                    result = outlook.save_mail(outlook.read_inbox(page))
+                    outlook.backfill(page)  # the whole text of older ones that left the inbox
+                    return result
+                step("mail", mail)
             finally:
                 ctx.close()
 

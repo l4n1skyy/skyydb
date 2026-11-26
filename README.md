@@ -47,7 +47,7 @@ ALSO! fun fact, lots of scraping and apis yummmm. Scrapes sunway elearn/outlook 
 - **HSK**: Chinese words in three lists (to learn, to revise, learnt). Learnt words come back to revise after a week by themselves.
 - **Workouts**: log sets (several at once, or a whole plan in one go), make plans with their own icons and put them on days of the week. Stats has a month calendar with your plan icons, a shoe on run days and your week streak, which days you train most, and your running from Strava. History lists every workout and every run. Your plans can also be copied into an Obsidian note ([Plans in Obsidian](#plans-in-obsidian)). Any list (a plan's exercises, a day's log) reorders by dragging the dash handle on the right of each row.
 - **Finance**: expenses against a daily and a monthly budget (with a pie of where it went), savings balances by month, and your investments (read from Interactive Brokers and Wise if you connect them). Expenses can also be jotted in your Obsidian daily notes and logged with one command ([Expenses from Obsidian](#expenses-from-obsidian)).
-- **Work**: deadlines and tasks per course, with priorities; with `elearn` installed also an Announcements tab that reads Sunway University's eLearn and Outlook.
+- **Work**: deadlines and tasks per course, with priorities (finished ones fold away under Done); with `elearn` installed also Courses and Faculty tabs that read Sunway University's eLearn and Outlook ([eLearn and Outlook](#elearn-and-outlook)).
 - **Quotes** and **Thoughts**: little notebooks with tags.
 
 Keys: Tab and Shift+Tab move between fields and buttons, as on any web page (pages are picked from the top menu). In the workout log form, Enter steps from the exercise to reps, weight and the next set, and Ctrl+Enter logs it. A drag handle with focus moves its row with the up and down arrow keys.
@@ -91,7 +91,7 @@ ln -s "$PWD/bin/skyydb" ~/.local/bin/skyydb   # any folder on your PATH works
 
 ## Choose your features
 
-The features are `chinese` (the HSK page), `workouts`, `finance`, `work`, `elearn` (Work's Announcements tab, for Sunway University students), `quotes` and `thoughts`. Install just the ones you want:
+The features are `chinese` (the HSK page), `workouts`, `finance`, `work`, `elearn` (Work's Courses and Faculty tabs, for Sunway University students), `quotes` and `thoughts`. Install just the ones you want:
 
 ```bash
 skyydb install finance workouts chinese
@@ -135,14 +135,21 @@ Then paste your profile link on **Workouts → Settings** and press **Sign in to
 
 ## eLearn and Outlook
 
-For Sunway University students: with the `elearn` feature, Work gets an **Announcements** tab that reads your eLearn (activity stream, every course's announcements and your grades) and your Outlook inbox, sorts it by how much it matters, and links deadlines to your Work tasks. The scraper is in [`scrapers/elearn`](scrapers/elearn); set it up once:
+For Sunway University students: with the `elearn` feature, Work gets a **Courses** tab and a **Faculty** tab that read your eLearn (activity stream, every course's announcements, course messages and your grades) and your Outlook inbox from this semester, newest first.
+
+- **Courses** shows your subjects, with a chip per course: sub-tabs **New** (the last 7 days), **Assessments**, **Classes** and **Other**.
+- **Faculty** shows the faculty, school and career pages and other mail: **New**, **Internships**, **Events**, **Opportunities**, **Notices** and **Other**.
+- Each row shows the next date the post talks about (an event, a deadline, "Week 9"), and every list is split into **Upcoming** and **Past** (every date in it has gone by). Opening a row shows the whole post or email, with links to eLearn and Outlook.
+- Reminders, reposts and the email copy of an announcement show once. Left out: files put up with nothing said about them, "New course available", student evaluation surveys and eLearn's automatic mails (due soon, submission received, ...).
+
+The scraper is in [`scrapers/elearn`](scrapers/elearn); set it up once:
 
 ```bash
 cd scrapers/elearn
 UV_PROJECT_ENVIRONMENT=~/.local/share/venvs/elearn uv sync
 ```
 
-Then on **Work → Settings**, under **eLearn and Outlook**, save your Sunway ID and password. They go to `~/.config/elearn/credentials`, readable by you alone, never into this folder, and the password isn't shown again. **Sign in to Outlook** opens a window once so you can approve the sign-in on your phone (Microsoft asks again about every two weeks); **Sign in to eLearn** does the same if eLearn ever wants a code. After that, **Refresh** on the Announcements tab reads everything again (about a minute). More in [its README](scrapers/elearn/README.md).
+Then on **Work → Settings**, under **eLearn and Outlook**, save your Sunway ID and password. They go to `~/.config/elearn/credentials`, readable by you alone, never into this folder, and the password isn't shown again. **Sign in to Outlook** opens a window once so you can approve the sign-in on your phone (Microsoft asks again about every two weeks); **Sign in to eLearn** does the same if eLearn ever wants a code. After that, **Refresh** on the Courses or Faculty tab reads everything again (about a minute). More in [its README](scrapers/elearn/README.md).
 
 ## Expenses from Obsidian
 

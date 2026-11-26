@@ -878,3 +878,13 @@ addEventListener("popstate", () => {
   const now = location.pathname + location.search;
   if (now !== lastPath) { lastPath = now; go(location.href, false); }
 });
+
+// A one-line row of chips (.chips.one-line) scrolls sideways with the ordinary mouse wheel too
+document.addEventListener("wheel", (e) => {
+  const row = e.target.closest?.(".chips.one-line");
+  if (!row || row.scrollWidth <= row.clientWidth || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+  const max = row.scrollWidth - row.clientWidth;
+  if ((e.deltaY < 0 && row.scrollLeft <= 0) || (e.deltaY > 0 && row.scrollLeft >= max)) return;  // at the end: scroll the page
+  e.preventDefault();
+  row.scrollLeft += e.deltaY;
+}, {passive: false});

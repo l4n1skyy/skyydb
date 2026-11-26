@@ -752,6 +752,22 @@ table.costs td.n { width: 6.5em; }
 .tag-filter .chip[aria-current] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .tag-filter .chip .n { opacity: 0.7; }
 .tag-filter.centred { justify-content: center; }
+/* One line of chips that scrolls sideways (the mouse wheel scrolls it too: app.js) instead of wrapping */
+.chips.one-line { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 6px; }
+.chips.one-line > * { flex: none; }
+/* Their sideways scrollbar (and the Faculty sub-tabs'): a thin rounded thumb on no track, faint until the row is pointed at,
+   then the accent colour. Chromium draws it from the ::-webkit-scrollbar rules (they only apply while scrollbar-width and
+   scrollbar-color are unset there); Firefox / Zen has just those two properties. */
+.chips.one-line, .an-subtabs { --sb-thumb: color-mix(in srgb, var(--muted) 22%, transparent); }
+.chips.one-line:hover, .an-subtabs:hover { --sb-thumb: color-mix(in srgb, var(--accent) 65%, transparent); }
+@supports not selector(::-webkit-scrollbar) {
+  .chips.one-line, .an-subtabs { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+}
+.chips.one-line::-webkit-scrollbar, .an-subtabs::-webkit-scrollbar { height: 4px; }
+.chips.one-line::-webkit-scrollbar-track, .an-subtabs::-webkit-scrollbar-track { background: transparent; }
+.chips.one-line::-webkit-scrollbar-thumb, .an-subtabs::-webkit-scrollbar-thumb { background: var(--sb-thumb); border-radius: 4px; }
+.chips.one-line::-webkit-scrollbar-button, .an-subtabs::-webkit-scrollbar-button { display: none; }
+.tag-filter.centred.one-line { justify-content: safe center; }
 /* Quotes and Thoughts have no main tabs, only "+ Add" and Settings: on the right like the other pages' */
 .tabs.tabs-end { justify-content: flex-end; }
 .zen-panel { margin-bottom: 20px; }
@@ -863,6 +879,14 @@ table.costs td.n { width: 6.5em; }
 .done-row .task-title { flex: 1; min-width: 0; text-decoration: line-through; }
 .done-row.ahead .task-title { text-decoration: none; }
 .done-group .when-box { opacity: 0.7; }
+/* The Done section starts folded: its heading opens it */
+.done-group > summary { list-style: none; cursor: pointer; }
+.done-group > summary::-webkit-details-marker { display: none; }
+.done-group > summary h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.done-group[open] > summary h2 { margin-bottom: 6px; }
+.done-group > summary h2::before { content: ""; width: 5px; height: 5px; border: solid var(--muted); border-width: 0 2px 2px 0;
+                                   transform: rotate(-45deg); transition: transform 0.15s; }
+.done-group[open] > summary h2::before { transform: rotate(45deg); }
 .main-nav a { cursor: grab; }
 .main-nav a.dragging { opacity: 0.4; }
 .home-date { font-size: 1.15rem; color: var(--muted); }
@@ -969,41 +993,32 @@ table.costs td.n { width: 6.5em; }
 main { transition: opacity 0.2s; }
 main.loading { opacity: 0.45; }
 
-/* Work > eLearn */
+/* Work > Announcements: two lists (your subjects; faculty and career), newest first; each shows its newest 50 until
+   "Show the other N" adds the class `all` */
+.an-list:not(.all) > li:nth-child(n+51) { display: none; }
+.an-show-all { margin: 10px 0 2px; }
+.an-subtabs { display: inline-flex; max-width: 100%; overflow-x: auto; margin: 0 0 12px; }
+.an-subtabs a { flex: none; padding: 5px 11px; }
+.an-text { overflow-wrap: anywhere; }
+/* The next date a post names (an event, a deadline) or its due date, in a column just right of the subject ("Mon 30 Nov" is
+   10 characters); a post whose dates have all passed fades */
+.an-date { flex: none; width: 10ch; font-size: 0.78rem; white-space: nowrap; color: var(--text); }
+.task.an-over { opacity: 0.5; }
+.task.an-over:hover, .task.an-over:has(details[open]) { opacity: 1; }
+.an-earlier { display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed var(--border); padding-top: 8px; }
+.an-earlier-post > summary { cursor: pointer; font-size: 0.85rem; padding: 2px 0; }
+.an-earlier-post[open] { display: flex; flex-direction: column; gap: 8px; padding-bottom: 6px; }
 .an-bar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
 .an-bar .an-courses { margin: 0; }
 .an-refresh { display: flex; align-items: center; gap: 10px; flex: none; }
-.an-course { font-size: 0.95rem; margin: 18px 0 4px; display: flex; align-items: center; gap: 10px; }
-.an-course:first-of-type { margin-top: 4px; }
-.an-more { margin-top: 4px; }
-.an-more > summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; padding: 6px 10px; }
-.an-more > summary:hover { color: var(--text); }
 .grade-score { font-weight: 700; white-space: nowrap; min-width: 8em; text-align: right; }
 .grade-score small { color: var(--muted); font-weight: 400; margin-left: 4px; }
 .grade-score.low, .grade-score.low small { color: var(--danger); }
 .badge { font-size: 0.72rem; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
-.badge.t-lecture { color: var(--series-3, #89b4fa); border-color: currentColor; }
-.badge.t-practical { color: var(--series-2, #a6e3a1); border-color: currentColor; }
-.badge.t-assessment { color: var(--series-4, #fab387); border-color: currentColor; }
-.badge.t-recording { color: var(--series-1, #cba6f7); border-color: currentColor; }
 @media (max-width: 700px) { .an-bar { flex-direction: column; } }
-.an-tier { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 26px 0 10px; display: flex; align-items: center; gap: 10px; }
-.an-tier::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--muted); }
-.an-tier.t1 { color: var(--danger); } .an-tier.t1::before { background: var(--danger); }
-.an-tier.t2 { color: var(--accent); } .an-tier.t2::before { background: var(--accent); }
-.an-fold > summary { cursor: pointer; padding: 4px 0; }
-.badge.c-deadline, .badge.c-assessment, .badge.c-exam { color: var(--danger); border-color: currentColor; }
-.badge.c-grade { color: var(--series-2, #a6e3a1); border-color: currentColor; }
-.badge.c-class { color: var(--accent); border-color: currentColor; }
 
-.an-sync .bad { color: var(--danger); }
 .an-courses .chip.off { opacity: 0.4; text-decoration: line-through; }
-.an-groups { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.an-groups .an-courses { margin: 0; }
-.an-pages { align-items: center; }
-.an-groups { flex: 1; }
-.an-sync { margin: -4px 0 12px; }
-.an-sync .bad { color: var(--danger); }
+.an-bar > .chips { min-width: 0; flex: 1; }
 .tabs > .an-refresh { align-self: center; margin: 0 0 0 auto; }
 .an-refresh + .tab-group { margin-left: 0; }
 

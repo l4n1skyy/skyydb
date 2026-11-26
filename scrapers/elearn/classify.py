@@ -8,6 +8,7 @@ Importance:  1 = act on it (deadlines, grades, tests, assignments, submissions, 
              4 = optional (events, internships, talks, competitions)
              5 = noise (old COVID notices, campus admin)
 """
+import html
 import re
 
 R = lambda p: re.compile(p, re.I)
@@ -69,6 +70,22 @@ MINOR = R(r"checkpoint|pre[- ]class|h5p|attendance|survey|feedback|orientation|p
 
 def clean(text):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text or "")).strip()
+
+
+def text(markup):
+    """A post's HTML as plain text that keeps its paragraphs, line breaks, list items and table rows (cells joined with ' | '),
+    for showing the whole post. HTML entities (&amp;, &nbsp;) are turned back into characters."""
+    # a table cell stays on its row's line, whatever paragraphs are inside it
+    t = re.sub(r"(?is)<t([dh])\b[^>]*>(.*?)</t\1>", lambda m: re.sub(r"(?i)</(p|div|li)>|<br\s*/?>", " ", m.group(2)) + " | ", markup or "")
+    t = re.sub(r"(?i)<br\s*/?>", "\n", t)
+    t = re.sub(r"(?i)<li\b[^>]*>", "\n• ", t)
+    t = re.sub(r"(?i)</(p|div|tr|h[1-6]|blockquote|pre|table|ul|ol)>", "\n", t)
+    t = html.unescape(re.sub(r"<[^>]+>", "", t)).replace("\xa0", " ").replace("\r", "")
+    lines = [re.sub(r"[ \t]+", " ", line).strip().strip("|").strip() for line in t.split("\n")]
+    # no blank line between two list items
+    lines = [line for i, line in enumerate(lines)
+             if line or not (0 < i < len(lines) - 1 and lines[i - 1].startswith("• ") and lines[i + 1].startswith("• "))]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
 
 
 def classify(title, body="", course=""):

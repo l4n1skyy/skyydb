@@ -23,7 +23,7 @@ import xml.etree.ElementTree as ET
 from bisect import bisect_right
 from datetime import date, datetime, timedelta, timezone
 from itertools import zip_longest
-from html import escape
+from html import escape, unescape
 from math import ceil, cos, floor, log10, radians, sin
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode
@@ -3560,11 +3560,13 @@ async def uni(request, datasette):
     kinds = await rows(db, "SELECT * FROM kinds ORDER BY position, id")
     priorities = await rows(db, "SELECT * FROM priorities ORDER BY level")
     view = {"settings": "courses"}.get(request.args.get("view"), request.args.get("view"))  # the Settings tab holds the courses
-    view = view if view in ("courses", "add") + (("announcements",) if "elearn" in FEATURES else ()) else "tasks"
+    # eLearn and Outlook have two tabs: Courses (view "subjects": "courses" is the Settings tab) and Faculty (faculty / career pages)
+    view = {"announcements": "subjects"}.get(view, view)
+    view = view if view in ("courses", "add") + (("subjects", "faculty") if "elearn" in FEATURES else ()) else "tasks"
     tasks = await rows(db, "SELECT * FROM task_list")
     ctx = dict(page="work", week=await semester_week(db), view=view, courses=courses, kinds=kinds, priorities=priorities, n_tasks=len(tasks))
-    if view == "announcements":
-        ctx.update(await announcements_context(datasette, request))
+    if view in ("subjects", "faculty"):
+        ctx.update(await announcements_context(datasette, request, view))
     if view == "courses" and "elearn" in FEATURES:
         creds = elearn_credentials()
         ctx["elearn_login"] = dict(user=creds.get("ELEARN_USER", ""), saved=bool(creds.get("ELEARN_PASS")), ready=ANNOUNCEMENTS_PYTHON.exists())
@@ -3680,35 +3682,81 @@ async def uni_course(request, datasette):
     return back("/work", view="settings", msg=msg)
 
 
-# --- Announcements: eLearn + Outlook merged into one list, sorted by how much each thing matters ----
-# Sources (scraped by scrapers/elearn/refresh.py into elearn.db): the eLearn stream, eLearn announcements and
-# gradebook, and the Outlook inbox. One thing said in several places shows once: an email that repeats an announcement marks it
-# "emailed", the same ad posted on several faculty pages shows once with "also on N pages", and your Work tasks are matched to it.
-# Importance (classify.py in that project): 1 act on it · 2 your week · 3 content · 4 events, internships · 5 noise.
+# --- Announcements: eLearn + Outlook in one list, newest first -----------------------------------
+# Sources (scraped by scrapers/elearn/refresh.py into elearn.db): the eLearn stream (new content, grades, due dates, new
+# courses), eLearn announcements, and the Outlook inbox. One thing said in several places shows once: an email that repeats an
+# announcement marks it "emailed", and the same ad posted on several faculty pages shows once with "also on N pages".
+# The category classify.py gives each one (in that project) is only a label on its row.
 
 ANNOUNCEMENTS_PROJECT = ROOT / "scrapers" / "elearn"
 ANNOUNCEMENTS_PYTHON = Path.home() / ".local/share/venvs/elearn/bin/python"
-STREAM_KINDS = ("deadline", "grade", "announcement", "content", "enrolment", "other")
-# What a file or title is about, from the words in it: first match wins
-CONTENT_TOPICS = (
-    ("Recording", ("recording", "video", "panopto", "zoom", "youtube")),
-    ("Assessment", ("assignment", "submission", "quiz", "test", "exam", "report", "project", "case study", "proposal", "rubric", "marking")),
-    ("Practical", ("practical", "tutorial", "lab", "exercise", "worksheet", "workshop", "sample input", "source files", "dataset")),
-    ("Lecture", ("lecture", "slides", "handout", "chapter", "topic", "week ", "notes", "introduction", "overview")),
-)
 SYNC_LABELS = {"courses": "courses", "stream": "activity stream", "grades": "announcements + grades", "mail": "Outlook", "eLearn": "eLearn"}
 MODULE_CODE = re.compile(r"\b([A-Z]{3}\d{4})\b")
+# eLearn's automatic emails ("New content in <course>", "Submission received", "<x> is due soon / is overdue in <course>",
+# "New grade and feedback for <x>", "New assessment in <course>") repeat what the activity stream lists or say nothing, so they
+# are never listed; its "New announcement in <page>" mails only add their Outlook link to the announcement they repeat. Its
+# "<someone> sent you a new message in <course>" mails carry a course message (a tutor cancelling a class, a lecturer's
+# reminder): listed in that course (course_message).
+ELEARN_NOISE = re.compile(r"^(New content in |Submission received\b|New grade and feedback for |New assessment in |"
+                          r".+ is due soon in |.+ is overdue in )", re.I)
+COURSE_MESSAGE = re.compile(r"^(.+?) sent you a new message in (.+)$")
+# Never listed: the Student Evaluation of Course and Teaching (SECT / SEST) surveys and their reminders
+HIDDEN_TITLES = re.compile(r"student evaluation of (course|teaching)|\bSE[CS]T\b", re.I)
+# Sub-tabs of the Courses and Faculty tabs, by what classify.py called a post. Both start on New: anything posted in the
+# last NEW_DAYS days, of every kind. Courses: Assessments (tests, assignments, deadlines, exams, grades), Classes (the week's
+# plan, venue and time changes, online class links), Other. Faculty: Internships (also everything from the internship and
+# career pages: a career fair, a job), Events, Opportunities (competitions, programmes), Notices (iZone, exams and results,
+# class changes, the calendar), Other.
+NEW_DAYS = 7
+COURSE_TABS = (("new", "New"), ("assessments", "Assessments"), ("classes", "Classes"), ("other", "Other"))
+FACULTY_TABS = (("new", "New"), ("internships", "Internships"), ("events", "Events"), ("opportunities", "Opportunities"),
+                ("notices", "Notices"), ("other", "Other"))
+
+
+def course_tab(it):
+    kind = it.get("category") or it.get("label", "")  # a stream row (a due date, a grade) has only its label
+    if kind in ("deadline", "assessment", "exam", "grade", "team"):
+        return "assessments"
+    if kind == "class":
+        return "classes"
+    return "other"
+
+
+def faculty_tab(it):
+    category = it.get("category", "")
+    if category == "internship" or re.search(r"intern|career", it["course"], re.I):
+        return "internships"
+    if category == "event":
+        return "events"
+    if category == "opportunity":
+        return "opportunities"
+    if category in ("notice", "exam", "grade", "class", "deadline", "assessment"):
+        return "notices"
+    return "other"
+
+
+# What the Announcements tab leaves out as old: anything posted more than this many days before the semester started
+# (work.db `semester`; 4 weeks back keeps the notices sent out before week 1), and anything without a date.
+SEMESTER_LEAD_DAYS = 28
+# Near-identical posts are shown once: reminders, updates, reposts on another page, a file added again (see same_post)
+SAME_POST_DAYS = 60
+REPOST_TAGS = re.compile(r"\[(reminder|gentle reminder|deadline extended|extended|updated?|important!*|full|compulsory|clarification[^\]]*|"
+                         r"open to[^\]]*|repost|last call|final call)\]|\((link )?updated\)|"
+                         r"^\s*((gentle |event |friendly |final |last )?reminder|update[d]?|important|last call|final call|repost)"
+                         r"(\s*-\s*starting now)?\s*[:!\-–]+", re.I)
+POST_STOP = {"the", "and", "for", "with", "your", "you", "our", "are", "new", "from", "this", "that", "all", "will", "have", "has",
+             "pdf", "docx", "doc", "pptx", "ppt", "xlsx", "xls", "csv", "png", "jpg", "jpeg", "zip", "txt", "late", "submissions",
+             "not", "permitted", "due", "past", "added"}
+# Words in a subject's name too common to place an email by (see email_course)
+GENERIC_NAME_WORDS = {"project", "projects", "system", "systems", "computer", "computing", "science", "skills", "service", "health",
+                      "community", "introduction", "fundamentals", "principles", "programming", "engineering", "technology", "design",
+                      "development", "management", "applications", "communication"}
 _refresh = {}  # "proc": the refresh that is running
 
 
 def refresh_running():
     proc = _refresh.get("proc")
     return bool(proc) and proc.poll() is None
-
-
-def content_topic(title):
-    low = title.lower()
-    return next((name for name, words in CONTENT_TOPICS if any(w in low for w in words)), "File")
 
 
 def course_short(course):
@@ -3732,15 +3780,59 @@ def days_apart(a, b):
         return 99
 
 
+def email_course(m, pages, codes, hints):
+    """The eLearn subject or page an email comes from, or None. eLearn mails its announcements as '<page>: title' and sends
+    'New announcement in <page>' notices; lecturers put the module code in the subject or their address; and a personal email
+    ('Capstone 1 First Meeting') is placed by a word only one subject's name has (`hints`)."""
+    head = re.sub(r"^((re|fw|fwd):\s*)+", "", m["subject"], flags=re.I).strip()
+    notice = re.match(r"^New (?:announcement|content) in (.+)$", head)
+    name = notice.group(1).strip() if notice else head.split(": ", 1)[0].strip() if ": " in head else ""
+    if name in pages:
+        return name
+    code = MODULE_CODE.search(" ".join((m["subject"], m["preview"][:120], m["sender"], m["addr"].upper())))
+    if code and code.group(1) in codes:
+        return codes[code.group(1)]
+    return next((hints[w] for w in re.findall(r"[a-z]+", m["subject"].lower()) if w in hints), None)
+
+
+def course_message(m, who, course, codes):
+    """An eLearn course message, mailed as '<who> sent you a new message in <course>', as a feed row: titled by its first line
+    (without 'Dear students,'), its text without eLearn's header and footer, from <who> without the student-ID suffix, linked to
+    the message in eLearn. A class / lab message goes to Classes, a test / assignment one to Assessments."""
+    text = m.get("body") or m["preview"]
+    link = re.search(r"View Message <(https://elearn\.sunway\.edu\.my/[^>\s]+)>", text)
+    text = re.split(r"\s*View Message <", text)[0]
+    text = re.sub(r"^.*?New message from " + re.escape(who) + r"\s*", "", text, count=1, flags=re.S).strip()
+    name = re.sub(r"\s+(SU\.\S+|FET|SCAI|SBS)$", "", who).strip()
+    name = name.title() if name.isupper() else name
+    lines = [x.strip() for x in text.splitlines() if x.strip()]
+    first = next((x for x in lines if not re.fullmatch(r"(dear|hi|hello|good (morning|afternoon|evening))\b.{0,40}?[,!.]?", x, re.I)), "")
+    first = re.sub(r"^(dear|hi|hello)\b[^,]{0,40},\s*", "", first, flags=re.I)
+    first = re.split(r"(?<=[.!?])\s", first, maxsplit=1)[0]  # its first sentence
+    first = first[:1].upper() + first[1:] if first else f"Message from {name}"
+    title = first if len(first) <= 120 else first[:117].rsplit(" ", 1)[0] + "…"
+    category = ("assessment" if re.search(r"\b(test|quiz|exam|assignment|submission|deadline)s?\b", text, re.I) else
+                "class" if re.search(r"\b(class|lecture|tutorial|practical|lab)(es|s)?\b", text, re.I) else m["category"])
+    return dict(id=m["id"], course_id="", course=course, module=int(course in codes.values()), title=title, body=text,
+                posted_at=m["received"], category=category, importance=m["importance"], source="message", day=m["received"][:10],
+                link=link.group(1) if link else "", mail_link=m["link"], emailed=False, sender=name)
+
+
 async def announcement_feed(el):
     """eLearn announcements + Outlook messages as one list (newest first). An email that repeats an announcement is folded into it
-    (`emailed`, `mail_link`); an ad posted on several pages is kept once (`also`)."""
+    (`emailed`, `mail_link`). `module` = from one of your subjects (1) or from a faculty / school / career page or anyone else (0)."""
     feed = []
     for a in await rows(el, "SELECT * FROM announcements"):
-        a.update(source="elearn", day=a["posted_at"][:10], mail_link="", emailed=False, also=[], tracked=False,
+        a.update(source="elearn", day=a["posted_at"][:10], mail_link="", emailed=False,
                  link=f"https://elearn.sunway.edu.my/ultra/stream/announcement-detail?courseId={a['course_id']}&announcementId={a['id']}&mode=view")
         feed.append(a)
-    codes = {course_short(a["course"])[0]: a["course"] for a in feed if a["module"]}
+    pages = {a["course"] for a in feed} | {r["course"] for r in await rows(el, "SELECT DISTINCT course FROM stream_items WHERE course != ''")}
+    codes = {course_short(c)[0]: c for c in pages if course_short(c)[0]}
+    named = {}
+    for c in codes.values():
+        for w in set(re.findall(r"[a-z]{6,}", course_short(c)[1].lower())) - GENERIC_NAME_WORDS:
+            named.setdefault(w, set()).add(c)
+    hints = {w: next(iter(cs)) for w, cs in named.items() if len(cs) == 1}
     by_course = {}
     for a in feed:
         by_course.setdefault(a["course"], []).append(a)
@@ -3749,12 +3841,20 @@ async def announcement_feed(el):
     except Exception:  # the emails table appears with the first Outlook read
         mails = []
     for m in mails:
-        code = MODULE_CODE.search(m["subject"] + " " + m["preview"][:120])
-        course = codes.get(code.group(1)) if code else None
         notice = m["addr"].startswith("no-reply_elearn")  # eLearn's own mail: the real title is in the preview
+        if notice and ELEARN_NOISE.match(m["subject"]):
+            continue
+        message = COURSE_MESSAGE.match(m["subject"]) if notice else None
+        if message:
+            feed.append(course_message(m, message.group(1).strip(), message.group(2).strip(), codes))
+            continue
+        course = email_course(m, pages, codes, hints)
+        title = m["subject"]
+        if course and title.lower().startswith(course.lower() + ":"):  # '<page>: title': the page is shown beside it anyway
+            title = title[len(course) + 1:].strip() or title
         mine = by_course.get(course, feed) if course else feed
         head = title_words(re.sub(r"^New announcement from [^:]{0,60}?(FET|\w+)\s", "", m["preview"][:160])) if notice else set()
-        subject = title_words(m["subject"])
+        subject = title_words(title)
         best, score = None, 0
         for a in mine:
             if a["source"] != "elearn" or days_apart(a["posted_at"], m["received"]) > 5:
@@ -3770,160 +3870,227 @@ async def announcement_feed(el):
         if best and score >= 0.6:
             best["emailed"], best["mail_link"] = True, m["link"]
             continue
-        course = course or m["sender"]
-        feed.append(dict(id=m["id"], course_id="", course=course, module=int(bool(code and codes.get(code.group(1)))), title=m["subject"], body=m["preview"],
-                         posted_at=m["received"], category=m["category"], importance=m["importance"], source="email", day=m["received"][:10],
-                         link="", mail_link=m["link"], emailed=False, also=[], tracked=False))
-    # the same ad on several pages: keep the newest
-    seen = {}
-    for a in sorted(feed, key=lambda i: i["posted_at"], reverse=True):
-        key = frozenset(title_words(a["title"]))
-        if len(key) < 3 or a["module"]:
+        if notice:  # an eLearn notice that repeats nothing listed here says nothing either
             continue
-        if key in seen:
-            seen[key]["also"].append(a)
-            a["hidden"] = True
-        else:
-            seen[key] = a
-    feed = [a for a in feed if not a.get("hidden")]
+        feed.append(dict(id=m["id"], course_id="", course=course or m["sender"], module=int(course in codes.values()), title=title,
+                         body=m.get("body") or m["preview"], posted_at=m["received"], category=m["category"], importance=m["importance"],
+                         source="email", day=m["received"][:10], link="", mail_link=m["link"], emailed=False,
+                         sender=m["sender"].split(" - ")[0]))
     for a in feed:
+        a["body"] = unescape(a["body"] or "")  # older rows were stored with HTML entities (&amp;, &nbsp;)
         a["code"], a["name"] = course_short(a["course"])
         a["name"] = a["name"] if a["code"] else (a["course"] if a["source"] == "elearn" else a["course"].split(" - ")[0])
-        a["pages"] = len({x["course"] for x in a["also"]})
     feed.sort(key=lambda i: i["posted_at"], reverse=True)
     return feed
 
 
-async def announcement_tasks(datasette, due_items, feed, assessments, stream_due):
-    """Your open Work tasks, each with what eLearn/Outlook say about it (same course + the words in the title, or same due date).
-    Marks the matched items `tracked`, and sets `in_tasks` + `add` (a prefilled new task) on the eLearn deadlines."""
-    work = datasette.get_database("work")
-    task_rows = await rows(work, "SELECT * FROM task_list WHERE done_on IS NULL ORDER BY due IS NULL, due, priority")
-    course_ids = {r["name"].lower(): r["id"] for r in await rows(work, "SELECT id, name FROM courses")}
-    el_courses = {c for c in {a["course"] for a in feed if a["module"]} | {a["course"] for a in assessments} if course_short(c)[0]}
-
-    def words_of(text, drop=frozenset()):
-        return {w for w in re.findall(r"[a-z]+|\d+", (text or "").lower()) if w not in ("the", "and", "of", "for", "to", "a", "in", "on", "new") and w not in drop}
-
-    def same(task_words, text, drop):
-        words = words_of(text, drop)
-        nums = {w for w in task_words if w.isdigit()}
-        text_words = task_words - nums
-        return bool(text_words) and nums <= words and len(text_words & words) >= max(1, ceil(0.6 * len(text_words)))
-
-    for t in task_rows:
-        course = next((c for c in el_courses if t["course"] and t["course"].lower() in c.lower()), None)
-        t["elearn_course"], t["found"] = course, []
-        if not course:
-            continue
-        drop = words_of(course) | words_of(t["course"])
-        words = words_of(t["title"], drop)
-        for a in assessments:
-            if a["course"] == course and ((t["due"] and a["due"][:10] == t["due"]) or same(words, a["name"], drop)):
-                t["found"].append(dict(kind="assessment", text=a["short"], due=a["due"], score=a["score"], possible=a["possible"], id=a["id"]))
-        for a in feed:
-            if a["course"] == course and a["importance"] <= 2 and same(words, a["title"], drop):
-                a["tracked"] = True
-                t["found"].append(dict(kind=a["category"], text=a["title"], day=a["day"], via="email" if a["source"] == "email" else ("eLearn + email" if a["emailed"] else "eLearn")))
-        t["found"] = t["found"][:4]
-    for it in due_items + stream_due:
-        title = it.get("short") or it["title"]
-        drop = words_of(it["course"])
-        it["in_tasks"] = any(any(f.get("id") == it.get("id") and f["kind"] == "assessment" for f in t["found"])
-                             or (t["elearn_course"] == it["course"] and same(words_of(t["title"], drop | words_of(t["course"])), title, drop))
-                             for t in task_rows)
-        it["add"] = dict(title=re.sub(r"^Due:\s*", "", title), course_id=next((i for n, i in course_ids.items() if n in it["course"].lower()), ""),
-                         due=(it.get("due") or "")[:10], due_time=(it.get("due") or "")[11:16])
-    return task_rows
+def stream_entry(it):
+    """An eLearn activity-stream item (a grade, a due date) in the shape of an announcement_feed row"""
+    kind, title = it["kind"], it["title"]
+    label, score = kind, ""
+    if kind == "grade":
+        title = title.removeprefix("Grade posted:").strip()
+        score = it["score"]
+        try:
+            got, out = (float(x) for x in score.split("/"))
+            score += f" ({round(100 * got / out)}%)" if out else ""
+        except ValueError:
+            pass
+    return dict(id=f"s{it['id']}", source="elearn", course=it["course"], module=int(bool(course_short(it["course"])[0])), title=title, body=it["content"], posted_at=it["posted_at"],
+                day=it["posted_at"][:10], link=it["link"], mail_link="", emailed=False, label=label,
+                score=score, due=it["due"])
 
 
-async def announcements_context(datasette, request):
-    """Everything the Announcements tab of Work shows"""
+def post_key(title):
+    """What identifies a post, for spotting the same one again: its words (3+ letters) and its numbers, without 'Re:',
+    '[REMINDER]', 'Update:', 'Due:' / 'Past due:' / 'Added:' or a file type"""
+    t = re.sub(r"^((re|fw|fwd):\s*)+", "", (title or "").lower())
+    t = re.sub(r"^(added|due|past due)\s*:", "", t)
+    t = REPOST_TAGS.sub(" ", REPOST_TAGS.sub(" ", t))
+    words = {w for w in re.findall(r"[a-z]{3,}", t) if w not in POST_STOP}
+    numbers = {n.lstrip("0") or "0" for n in re.findall(r"\d+(?:[a-z](?![a-z]))?", t)}  # '5a' and '5b' are two lectures
+    return words, numbers
+
+
+def same_post(a, b):
+    """Is b (older) the same post as a: a reminder, an update or a repost of it, or the same file added again? Same list (and
+    the same subject, for subjects), within SAME_POST_DAYS, the same numbers (one may have fewer: a year left out), and the
+    same words, or at least 70% of them. Grades never merge."""
+    if a["module"] != b["module"] or (a["module"] and a["course"] != b["course"]) or "grade" in (a["label"], b["label"]):
+        return False
+    if days_apart(a["posted_at"], b["posted_at"]) > SAME_POST_DAYS:
+        return False
+    (aw, an), (bw, bn) = a["key"], b["key"]
+    if not aw or not bw or not (an <= bn or bn <= an):
+        return False
+    return aw == bw or (min(len(aw), len(bw)) >= 3 and len(aw & bw) / len(aw | bw) >= 0.7)
+
+
+def combine_posts(items):
+    """Show near-identical posts once: the newest stands for them, the older ones go into its `earlier` list. Rows of one post
+    made in the same minute (eLearn's Added / Due / Past due rows of an assignment) are put together first, so that two
+    assignments with the same name stay apart: due dates more than 3 days apart are two different things."""
+    units, minute = [], {}
+    for it in items:  # newest first
+        it["key"], it["earlier"] = post_key(it["title"]), []
+        k = (it["course"], frozenset(it["key"][0]), frozenset(it["key"][1]), it["posted_at"])
+        if k in minute and it["label"] != "grade":
+            minute[k]["earlier"].append(it)
+        else:
+            minute[k] = it
+            units.append(it)
+
+    def dues(r):
+        return {x["due"] for x in [r] + r["earlier"] if x["due"]}
+
+    rows_ = []
+    for u in units:
+        hits = [r for r in rows_ if any(same_post(x, u) for x in [r] + r["earlier"])
+                and not any(days_apart(d, e) > 3 for d in dues(r) for e in dues(u))]
+        if hits:
+            hits[0]["earlier"] += [u] + u["earlier"]
+            u["earlier"] = []
+        else:
+            rows_.append(u)
+    for r in rows_:
+        group = [r] + r["earlier"]
+        r["earlier"].sort(key=lambda x: x["posted_at"], reverse=True)
+        r["due"] = max(dues(r), default="")  # an extension's new date, if there was one
+        r["label"] = r["label"] or next((x["label"] for x in group if x["label"]), "")  # its kind, for the sub-tabs
+        r["emailed"] = r["emailed"] or any(x["emailed"] or x["source"] == "email" for x in r["earlier"])
+        r["mail_link"] = r["mail_link"] or next((x["mail_link"] for x in group if x["mail_link"]), "")
+        r["link"] = r["link"] or next((x["link"] for x in group if x["link"]), "")
+    return rows_
+
+
+# The dates a post names, to show when its thing happens and fade it once that has passed (post_dates). In the order trusted:
+# dates written out ("10 & 17 December 2026", "Date: 3 December 2026 (Thursday)", "October 23, 2026", "14–17 Oct"), then
+# semester weeks ("Week 9": up to that week's Sunday), then "today" / "tomorrow" / "this Friday" (from the day it was posted);
+# the title first, the body only if the title names none. A day without a year is the one nearest the posting day; dates more
+# than POST_DATE_BACK days before it or a year after it are left out (an old template's "4 December 2025", a company's founding).
+_MONTH = r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b\.?"
+_ORD = r"(?:st|nd|rd|th)?"
+DAY_MONTH = re.compile(rf"\b(\d{{1,2}}){_ORD}((?:\s*(?:-|–|—|to|&|and|,|/)\s*\d{{1,2}}{_ORD}\b)*)\s*(?:of\s+)?{_MONTH}(?:,?\s*(20\d\d)\b)?", re.I)
+MONTH_DAY = re.compile(rf"\b{_MONTH}\s+(\d{{1,2}}){_ORD}\b(?:,?\s*(20\d\d)\b)?", re.I)
+WEEK_N = re.compile(r"\bweek\s*(\d{1,2})(?:st|nd|rd|th)?\b(?![-–/]\d)", re.I)
+RELATIVE_DAY = re.compile(r"(?<!better )(?<!brighter )(?<!of )\b(today|tonight|tomorrow|(?:this|coming|this coming) "
+                          r"(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b(?!'s? (?:leaders|world|talent))", re.I)
+POST_DATE_BACK = 60
+_URL = re.compile(r"https?://\S+|www\.\S+")
+_MONTHS3 = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+
+
+def _on(year, month, day, posted):
+    """That day; without a year, the one nearest the day it was posted"""
+    out = []
+    for y in ([int(year)] if year else (posted.year - 1, posted.year, posted.year + 1)):
+        try:
+            out.append(date(y, month, day))
+        except ValueError:
+            pass
+    return min(out, key=lambda d: abs((d - posted).days), default=None)
+
+
+def named_dates(text, posted, sem_start):
+    """The dates `text` names: written out, else semester weeks, else 'today' / 'tomorrow' / 'this Friday'"""
+    text = _URL.sub(" ", text or "")
+    month = lambda name: _MONTHS3.index(name.lower()[:3]) + 1
+    found = [_on(m.group(4), month(m.group(3)), int(d), posted)
+             for m in DAY_MONTH.finditer(text) for d in [m.group(1)] + re.findall(r"\d{1,2}", m.group(2) or "")]
+    found += [_on(m.group(3), month(m.group(1)), int(m.group(2)), posted) for m in MONTH_DAY.finditer(text)]
+    if not any(found) and sem_start:
+        found = [sem_start + timedelta(days=7 * (int(m.group(1)) - 1) + 6) for m in WEEK_N.finditer(text) if 1 <= int(m.group(1)) <= 16]
+    if not any(found):
+        for m in RELATIVE_DAY.finditer(text):
+            word = m.group(1).lower()
+            if word in ("today", "tonight"):
+                found.append(posted)
+            elif word == "tomorrow":
+                found.append(posted + timedelta(days=1))
+            else:
+                found.append(posted + timedelta(days=([w[:3].lower() for w in WEEKDAY_NAMES].index(word.split()[-1][:3]) - posted.weekday()) % 7))
+    return {d for d in found if d and -POST_DATE_BACK <= (d - posted).days <= 366}
+
+
+def post_dates(it, sem_start):
+    """The dates one row is about (its own post's, and those of the posts folded into it), as ISO days, plus its due date"""
+    out = set()
+    for x in [it] + it["earlier"]:
+        posted = date.fromisoformat(x["posted_at"][:10])
+        out |= named_dates(x["title"], posted, sem_start) or named_dates(x.get("body", ""), posted, sem_start)
+    out = {d.isoformat() for d in out} | ({it["due"][:10]} if it["due"] else set())
+    return sorted(out)
+
+
+async def announcements_context(datasette, request, view="subjects"):
+    """What one of Work's eLearn tabs shows: what eLearn and Outlook said, newest first, from your subjects (the Courses tab,
+    view "subjects") or from the faculty / school / career pages and any other sender (the Faculty tab, view "faculty"),
+    split into sub-tabs (COURSE_TABS / FACULTY_TABS) that start on New, the last NEW_DAYS days"""
     el = datasette.get_database("elearn")
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    recent = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d")
     course = request.args.get("course", "")
-    only = " AND course = :course" if course else ""
-    params = {"course": course} if course else {}
-
-    def decorate(items):
-        for it in items:
-            it["code"], it["name"] = course_short(it["course"])
-            it["day"] = (it.get("posted_at") or "")[:10]
-        return items
-
-    def split(items):
-        return [i for i in items if i["day"] >= recent], [i for i in items if i["day"] < recent]
-
-    def capped(items, n=8):  # the faculty pages post a lot: the newest few, the rest folded
-        new, old = split(items)
-        return new[:n], new[n:] + old
-
     feed = await announcement_feed(el)
-    courses, pages = {}, {}
+    courses = {}
     for a in feed:
-        if a["source"] != "elearn":  # an email's "course" is its sender: not a chip
-            continue
-        group = courses if a["module"] else pages
-        group.setdefault(a["course"], dict(course=a["course"], n=0))["n"] += 1
+        if a["source"] == "elearn" and a["module"]:  # the course chips (an email's "course" may be its sender: not a chip)
+            courses.setdefault(a["course"], dict(course=a["course"], n=0))["n"] += 1
     settings = {r["course"]: r["auto"] for r in await rows(el, "SELECT course, auto FROM course_settings WHERE active = 0")}
     off = set(settings)
     # chips: the modules you starred (one you switched off by hand stays, faded, so it can come back); modules switched off because
-    # they aren't starred are not listed. The faculty / school / career pages are a group of their own.
+    # they aren't starred are not listed.
     for name in off:
         if not settings[name]:
             courses.setdefault(name, dict(course=name, n=0))
     for name in set(courses) - off | {n for n in off if not settings[n]}:
         courses[name]["code"], courses[name]["name"] = course_short(name)
         courses[name]["off"] = name in off
-    for name, c in pages.items():
-        c["name"] = name
-    feed = [a for a in feed if a["course"] not in off and (not course or a["course"] == course)]
-    stream = decorate([i for i in await rows(el, "SELECT * FROM stream_items WHERE 1" + only + " ORDER BY posted_at DESC, id DESC", params) if i["course"] not in off])
-    by = {k: [it for it in stream if it["kind"] == k] for k in STREAM_KINDS}
-    for it in by["content"]:
-        it["topic"] = content_topic(it["title"].removeprefix("Added:").strip())
-    for g in by["grade"]:
-        try:
-            got, out = (float(x) for x in g["score"].split("/"))
-            g["pct"] = round(100 * got / out) if out else None
-        except ValueError:
-            g["pct"] = None
-        g["what"] = g["title"].removeprefix("Grade posted:").strip()
-    scored = [g for g in by["grade"] if g["pct"] is not None]
-
-    # Assessments: what's coming (any size), and big ones that passed without a result yet
-    assessments = decorate([dict(a, posted_at="", short=re.sub(r"^New Assignment", "Assignment", a["name"]))
-                            for a in await rows(el, "SELECT * FROM assessments WHERE 1" + only + " ORDER BY due", params) if a["course"] not in off])
-    upcoming = [a for a in assessments if a["due"] >= now]
-    for a in upcoming:
-        a["days_left"] = (date.fromisoformat(a["due"][:10]) - date.today()).days
-    waiting = [a for a in assessments if a["weight"] == "major" and a["due"] and a["due"] < now and a["score"] is None and a["due"][:10] >= recent]
-    stream_due = [d for d in by["deadline"] if d["due"] >= now and not any(a["due"] == d["due"] and a["course"] == d["course"] for a in upcoming)]
-    tasks = await announcement_tasks(datasette, upcoming + waiting, feed, assessments, stream_due)
-
-    classes = split([a for a in feed if a["importance"] == 2])
-    week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
+    for a in feed:
+        a["label"] = "" if a["category"] in ("general", "info") else a["category"]
+        a["score"], a["due"] = "", ""
+    # the stream's own "announcement" items are the announcements above, so they are left out here, and so are new content
+    # ("Added: Practical05-HTCondor_Jobs.pdf": a file or link put up with nothing said about it) and enrolments ("New course
+    # available: 2701-CSC3034 ...", "New organization available")
+    stream = [stream_entry(i) for i in await rows(el, "SELECT * FROM stream_items WHERE kind NOT IN ('announcement', 'content', 'enrolment')")]
+    for it in stream:
+        it["code"], it["name"] = course_short(it["course"])
+        it["name"] = it["name"] if it["code"] else it["course"]
+    sem = await one(datasette.get_database("work"), "SELECT start FROM semester WHERE id = 1")
+    since = ((date.fromisoformat(sem["start"]) if sem else date.today() - timedelta(days=120))
+             - timedelta(days=SEMESTER_LEAD_DAYS)).isoformat()
+    items = [a for a in feed + stream if a["course"] not in off and (not course or a["course"] == course) and a["posted_at"][:10] >= since
+             and not HIDDEN_TITLES.search(a["title"])]
+    items.sort(key=lambda i: i["posted_at"], reverse=True)
+    items = combine_posts(items)
+    # when each row's thing happens: the next date it names (or its last, once all have passed: `over`)
+    today = date.today().isoformat()
+    sem_start = date.fromisoformat(sem["start"]) if sem else None
+    for it in items:
+        it["dates"] = post_dates(it, sem_start)
+        it["over"] = bool(it["dates"]) and it["dates"][-1] < today
+        it["when"] = next((d for d in it["dates"] if d >= today), it["dates"][-1] if it["dates"] else "")
+        ahead = (date.fromisoformat(it["when"]) - date.fromisoformat(today)).days if it["when"] else None
+        it["when_label"] = {0: "today", 1: "tomorrow"}.get(ahead) or (f"{date.fromisoformat(it['when']):%a %-d %b}" if it["when"] else "")
     sync = []
     for source in ("stream", "grades", "mail"):
         row = await one(el, "SELECT * FROM sync_log WHERE source IN (?, 'eLearn') ORDER BY id DESC LIMIT 1", [source])
         sync.append(dict(source=SYNC_LABELS[source], at=row.get("at", "") if row else "", error=row.get("error", "") if row else "", items=row.get("items", 0) if row else 0))
-    return dict(
-        an_by=by, an_course=course, an_sync=sync, an_running=refresh_running(), an_total=len(feed) + len(stream),
-        an_upcoming=upcoming, an_stream_due=stream_due, an_waiting=waiting, an_tasks=tasks,
-        an_important=split([a for a in feed if a["importance"] == 1]), an_classes=classes,
-        an_internships=capped([a for a in feed if a["category"] == "internship"]),
-        an_events=capped([a for a in feed if a["category"] in ("event", "opportunity", "general")]),
-        an_other=split([a for a in feed if a["importance"] in (3, 5) and a["category"] not in ("general", "event", "opportunity", "internship")]),
-        an_courses=sorted((c for c in courses.values() if "code" in c), key=lambda c: -c["n"]),
-        an_pages=sorted(pages.values(), key=lambda c: -c["n"]),
-        an_mail=dict(total=sum(a["source"] == "email" or a["emailed"] for a in feed), twins=sum(a["emailed"] for a in feed),
-                     only=sum(a["source"] == "email" for a in feed)),
-        an_avg=round(sum(g["pct"] for g in scored) / len(scored)) if scored else None,
-        an_week=dict(important=sum(a["posted_at"] >= week_ago for a in feed if a["importance"] == 1),
-                     classes=sum(a["posted_at"] >= week_ago for a in feed if a["importance"] == 2),
-                     content=sum(c["posted_at"] >= week_ago for c in by["content"])),
-        an_soon=sum(1 for a in upcoming if a["days_left"] <= 14) + len(stream_due))
+    # this tab's list (Courses: your subjects; Faculty: the rest), its sub-tabs with their counts, and the one open
+    courses_tab = view != "faculty"
+    tabs, tab_of = (COURSE_TABS, course_tab) if courses_tab else (FACULTY_TABS, faculty_tab)
+    mine = [i for i in items if bool(i["module"]) == courses_tab]
+    new_since = (datetime.now() - timedelta(days=NEW_DAYS)).strftime("%Y-%m-%d %H:%M")
+    for it in mine:
+        it["tab"] = tab_of(it)
+    sub = request.args.get("sub", "")
+    sub = sub if sub in dict(tabs) else "new"
+    def in_tab(it, key):
+        return it["posted_at"] >= new_since if key == "new" else it["tab"] == key
+    subs = [dict(key=k, label=label, n=sum(in_tab(i, k) for i in mine)) for k, label in tabs]
+    shown = [i for i in mine if in_tab(i, sub)]
+    return dict(  # two lists: Upcoming (a date still ahead, or none named) and Past (every date it names has passed)
+        an_items=[i for i in shown if not i["over"]], an_past=[i for i in shown if i["over"]], an_any=bool(items), an_new_days=NEW_DAYS,
+        an_sub=sub, an_subs=subs, an_since=since, an_last=max((x["at"] for x in sync), default=""),
+        an_course=course, an_sync=sync, an_running=refresh_running(),
+        an_courses=sorted((c for c in courses.values() if "code" in c), key=lambda c: -c["n"]))
 
 
 async def announcements_course(request, datasette):
@@ -3943,20 +4110,22 @@ async def announcements_status(request, datasette):
 
 async def announcements(request, datasette):
     """The old eLearn page moved into Work"""
-    return back("/work", view="announcements", course=request.args.get("course"))
+    return back("/work", view="subjects", course=request.args.get("course"))
 
 
 async def announcements_refresh(request, datasette):
     """Start refresh.py in the background (about a minute: eLearn stream, announcements + grades, Outlook); the page reloads when done"""
     if request.method != "POST":
         return Response.text("POST only", status=405)
+    tab = (await request.post_vars()).get("view")
+    tab = tab if tab in ("subjects", "faculty") else "subjects"  # back to the tab Refresh was pressed on
     if refresh_running():
-        return back("/work", view="announcements", msg="Already refreshing.")
+        return back("/work", view=tab, msg="Already refreshing.")
     if not ANNOUNCEMENTS_PYTHON.exists():
-        return back("/work", view="announcements", error=f"The scraper isn't set up ({ANNOUNCEMENTS_PYTHON} is missing); see {ANNOUNCEMENTS_PROJECT}/README.md.")
+        return back("/work", view=tab, error=f"The scraper isn't set up ({ANNOUNCEMENTS_PYTHON} is missing); see {ANNOUNCEMENTS_PROJECT}/README.md.")
     _refresh["proc"] = subprocess.Popen([str(ANNOUNCEMENTS_PYTHON), "-I", str(ANNOUNCEMENTS_PROJECT / "refresh.py")], cwd=ANNOUNCEMENTS_PROJECT,
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    return back("/work", view="announcements", msg="Refreshing eLearn and Outlook…")
+    return back("/work", view=tab, msg="Refreshing eLearn and Outlook…")
 
 
 # --- Work > Settings: signing in to eLearn and Outlook ------------------------------------

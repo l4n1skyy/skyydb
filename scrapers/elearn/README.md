@@ -64,13 +64,29 @@ If the session cookie is still valid, step 1 lands straight on the stream and no
 - Data: `elearn.db` in skyydb's folder (its own database; schema in `schema/elearn.sql`).
   `stream_items` has one row per stream item (kept after it leaves the stream, de-duplicated by a
   hash of course + title + content + posted time); `scrapes` logs every sync.
-- Page: the **Announcements** tab inside Work (`http://127.0.0.1:8001/work?view=announcements`; `/work/announcements` redirects there).
-  Items are split by what they are, from the words in the title: **Deadlines** ("Due:"), **Grades**
-  ("Grade posted:", with the score and a %), **Announcements**, **New content** ("Added:", one block per
-  course, tagged Lecture / Practical / Assessment / Recording / File from keywords in the name),
-  **Courses added** ("New course available") and Other. Filter by course; **Refresh** runs
-  `elearn.py sync` in the background and the page reloads itself when it's done. Raw rows: `/elearn-db`.
-- `posted_at` is worked out for items the stream dates as "5 hours"; `due` is read from
+- Pages: Work's **Courses** tab (`http://127.0.0.1:8001/work?view=subjects`: "courses" is the Settings tab; `view=announcements`
+  and `/work/announcements` go there too) and **Faculty** tab (`/work?view=faculty`: the faculty / school / career /
+  internship pages, plus emails that belong to no subject), each newest first, with **Last read**, **Refresh** and
+  **Settings** on the right ("+ Add a task" shows only on the task tabs). Both have sub-tabs that start on **New** (posted in
+  the last 7 days, `NEW_DAYS`): Courses → Assessments (tests, assignments, deadlines, exams, grades) / Classes / Other
+  (`COURSE_TABS`); Faculty → Internships (also everything from the internship and career pages) / Events / Opportunities /
+  Notices (notices, exams and results, class changes) / Other (`FACULTY_TABS`). Courses has one line of course chips that
+  scrolls sideways (the mouse wheel scrolls it too); Faculty has none. Not listed: new
+  content ("Added: Practical05-HTCondor_Jobs.pdf", a file or link with nothing said about it), enrolments ("New course
+  available: ...") and the Student Evaluation of Course and Teaching surveys (`HIDDEN_TITLES`). A row shows its title,
+  "email" if it is only in Outlook, a grade's score and %, the subject or page, and in a column at the right its due date
+  or the next date the post names (`post_dates`): written-out dates ("10 & 17 December
+  2026", "Date: 14th December 2026 (Monday)", "October 23, 2026"), else semester weeks ("Week 9" = up to that week's
+  Sunday, from `semester` in work.db), else "today" / "tomorrow" / "this Friday" counted from the day it was posted; the
+  title first, the body only if the title names none; a date without a year is the one nearest the posting day; dates
+  more than 60 days before the post or a year after it are ignored (old templates, founding years). Each sub-tab has two lists:
+  **Upcoming** (a date still ahead, or no date named) and **Past** (every date it names has passed; faded until you hover or open one, which lists all the dates it found). About 7 in 10 posts name a date; open-ended ones (most internship ads) get none. Only this semester shows: nothing posted more than 4 weeks before the semester started
+  (`semester` in work.db; `SEMESTER_LEAD_DAYS`), nothing undated. Opening a row shows the whole post: announcements
+  keep their paragraphs, lists and table rows (`classify.text`), emails their whole text. Filter by course; **Refresh**
+  runs `refresh.py` in the background and the page reloads itself when it's done. Raw rows: `/elearn-db`.
+- `posted_at` is worked out for items the stream dates as "5 hours", "an hour", "a few minutes", "Just now" or "Yesterday"
+  (a post in its first hour used to be stored without a date, and so never listed); the announcements read
+  (`load_crawl.py`) fills in an announcement's date from eLearn when it was stored without one; `due` is read from
   "Due Date: 11/15/26, 11:59 PM". `kind` is deadline / grade / announcement / content / enrolment / other; grades also get a `score` like `22 / 25`.
 - The app files: `plugins/app.py` (`announcements*`, `elearn_credentials_save`, `elearn_sign_in`),
   `templates/app_announcements.html`, `bin/skyydb` (feature `elearn`), `datasette.yaml`.
@@ -124,19 +140,35 @@ If the session cookie is still valid, step 1 lands straight on the stream and no
   Authenticator ("Don't ask again for 14 days" is ticked, so later runs are headless; when it expires the Refresh logs
   "Outlook needs you to sign in": press **Sign in to Outlook** in Work → Settings, or run `outlook.py --show`).
 - It reads the **whole inbox** (all pages, ~110 messages) through Outlook's own web API, using the access token the page already
-  holds (read-only GETs), into `elearn.db` table `emails` (classified like announcements).
+  holds (read-only GETs), into `elearn.db` table `emails` (classified like announcements), with each message's whole text
+  as plain text in `body` (added to older databases on the next read). Stored messages without their text that have left
+  the inbox are looked up in Archive and Deleted Items (`backfill`; matched by conversation + time + subject, since moving a
+  message changes its id).
 
-## The Announcements page (Work > Announcements)
+## The Courses and Faculty tabs (Work)
 
 - **Refresh** runs `refresh.py`: (1) eLearn activity stream, (2) eLearn announcements + gradebook of every course
   (`crawl.light` + `load_crawl.load`), (3) Outlook inbox. About a minute. Each step is logged in `sync_log`; the bar shows when each
   last ran, with a warning if it failed. `refresh.py stream|grades|mail` runs only some.
-- All sources are merged into one list (`announcement_feed` in `plugins/app.py`): an email that repeats an announcement marks it
-  "+ email" (same words in the title, same course, within 5 days; eLearn's own "New announcement" mails are matched through
-  their preview), the same ad posted on several faculty pages shows once ("+N pages"), and messages only in Outlook appear
-  in the right tier with an "email" badge.
-- Your Work tasks are matched to eLearn assessments (same course + same due date or title words) and announcements/emails
-  (`announcement_tasks`); matched items get a "task" badge, and eLearn deadlines that aren't a task get a "+ task" button.
+- All sources are merged into one list, newest first (`announcement_feed` + `announcements_context` in `plugins/app.py`):
+  eLearn announcements, the eLearn activity stream (its own "announcement" items are the announcements again, so they are
+  left out) and Outlook. An email that repeats an announcement is folded into it, giving it an **Open in Outlook** button (same words in the
+  title, same course, within 5 days; eLearn's own "New announcement" mails are matched through their preview), and messages
+  only in Outlook get an "email" badge. Near-identical posts show once (`combine_posts`): reminders, updates, "[DEADLINE EXTENDED]" and
+  "(Link Updated)" versions, the same post on another page, the same file added again, and an assignment's Added / Due /
+  Past due rows. The newest stands for them; opening it lists the older ones under "Posted before", each with its own text.
+  Same words (or 70% of them) and the same numbers ("Tutorial 5" and "Tutorial 6" stay apart), within 60 days, in the
+  same subject; due dates more than 3 days apart keep two same-named assignments apart; grades never merge. An email is placed by
+  `email_course`: the eLearn page in its subject ("<page>: title", "New announcement in <page>"), else a module code in the
+  subject, preview, sender or address, else a word only one subject's name has ("Capstone"); the rest go to Faculty and career.
+  eLearn's own emails are never listed on their own (`ELEARN_NOISE`: "New content in", "Submission received",
+  "is due soon", "is overdue", "New grade and feedback", "New assessment in"; a "New announcement in" mail
+  only adds its Outlook link to the announcement it repeats): they repeat the stream or say nothing. Course messages
+  ("<someone> sent you a new message in <course>": a tutor cancelling a class, a lecturer's reminder) are listed in their
+  course (`course_message`): titled by their first line, from the sender (student-ID suffix dropped), with **Open in
+  eLearn**; a test / assignment message goes to Assessments, a class / lab one to Classes.
+  Each list shows its newest 50; a button shows the rest. Nothing comes from the Work tasks, and the gradebook
+  (`assessments`) isn't listed.
 - **Which courses are read:** the first step of `refresh.py` (`sync_courses`) switches off the modules you haven't starred in eLearn
   (`course_settings`, auto = 1) and deletes their rows from `stream_items`, `announcements` and `assessments`; star one later and it comes
   back at the next Refresh. Faculty / school / career pages are never switched off automatically. Double-clicking a chip switches a course by hand.

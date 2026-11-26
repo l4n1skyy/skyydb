@@ -154,9 +154,12 @@ def parse_time(text):
 
 
 def posted_at(date_text, time_text, now):
-    """'Oct 26, 2026' + '6:08 PM', or a relative '5 hours' + '9:21 AM', as 'YYYY-MM-DD HH:MM'"""
+    """'Oct 26, 2026' + '6:08 PM', or a relative '5 hours' / 'an hour' / 'a few minutes' / 'Just now' + '9:21 AM', as
+    'YYYY-MM-DD HH:MM' (a post's first hour reads 'an hour', not '1 hour': it used to be stored without a date)"""
     clock = parse_time(time_text)
-    rel = re.match(r"(\d+)\s*(minute|hour|day)", date_text)
+    text = re.sub(r"^(just now|now|today|a few seconds|seconds?|a few minutes)\b", "0 minutes", date_text.strip().lower())
+    text = re.sub(r"^(an?|one)\b", "1", re.sub(r"^yesterday\b", "1 day", text))
+    rel = re.match(r"(\d+)\s*(second|minute|hour|day)", text)
     if rel:
         ago = now - timedelta(**{rel.group(2) + "s": int(rel.group(1))})
         if not clock:

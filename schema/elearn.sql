@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS emails (
     is_read    INTEGER NOT NULL DEFAULT 1,
     category   TEXT NOT NULL DEFAULT '',      -- same categories as announcements
     importance INTEGER NOT NULL DEFAULT 3,
-    first_seen TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    first_seen TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    body       TEXT NOT NULL DEFAULT ''       -- the whole message as plain text (outlook.py adds this column to older databases)
 );
 CREATE INDEX IF NOT EXISTS emails_received ON emails (received);
 

@@ -9,11 +9,12 @@
   <nav class="tabs" aria-label="Work">
     <div class="tab-group">
       <a href="/work"{% if view == "tasks" %} aria-current="page"{% endif %}>Tasks <span class="count">{{ n_tasks }}</span></a>
-      {% if 'elearn' in features %}<a href="?view=announcements"{% if view == "announcements" %} aria-current="page"{% endif %}>Announcements</a>{% endif %}
+      {% if 'elearn' in features %}<a href="?view=subjects"{% if view == "subjects" %} aria-current="page"{% endif %} title="What your courses posted on eLearn and emailed you">Courses</a>
+      <a href="?view=faculty"{% if view == "faculty" %} aria-current="page"{% endif %} title="The faculty, school, career and internship pages, and other university email">Faculty</a>{% endif %}
     </div>
-    {% if view == "announcements" %}<form class="an-refresh" method="post" action="/work/announcements/refresh"><span class="refresh-status muted small-print">Last read: {% for s in an_sync %}<span{% if s.error %} class="bad" title="{{ s.error }}"{% endif %}>{{ s.source }} {{ s.at[11:16] if s.at else 'never' }}{{ ' ⚠' if s.error }}</span>{{ ' · ' if not loop.last }}{% endfor %}</span><button class="btn small primary"{% if an_running %} disabled{% endif %} title="Read eLearn (stream, announcements, grades) and Outlook again: about a minute">{{ "Refreshing…" if an_running else "↻ Refresh" }}</button></form>{% endif %}
+    {% if view in ("subjects", "faculty") %}<form class="an-refresh" method="post" action="/work/announcements/refresh"><input type="hidden" name="view" value="{{ view }}"><span class="refresh-status muted small-print" title="{% for s in an_sync %}{{ s.source }}: {{ s.at[:16] if s.at else 'never' }}{{ ' (' ~ s.error ~ ')' if s.error }}&#10;{% endfor %}">Last read {{ an_last[11:16] if an_last else 'never' }}{% for s in an_sync if s.error %} · <span class="bad" title="{{ s.error }}">{{ s.source }} ⚠</span>{% endfor %}</span><button class="btn small primary"{% if an_running %} disabled{% endif %} title="Read eLearn (stream, announcements, grades) and Outlook again: about a minute">{{ "Refreshing…" if an_running else "↻ Refresh" }}</button></form>{% endif %}
     <div class="tab-group">
-      <a href="?view=add"{% if view == "add" %} aria-current="page"{% endif %}>+ Add a task</a>
+      {% if view not in ("subjects", "faculty") %}<a href="?view=add"{% if view == "add" %} aria-current="page"{% endif %}>+ Add a task</a>{% endif %}
       <a href="?view=settings"{% if view == "courses" %} aria-current="page"{% endif %}>Settings</a>
     </div>
   </nav>
@@ -21,7 +22,7 @@
 
 {% if view == "tasks" %}
 {% if courses|length > 1 %}
-<nav class="chips tag-filter centred" aria-label="Show one course">
+<nav class="chips tag-filter centred one-line" aria-label="Show one course">
   <a class="chip" href="/work"{% if not pick %} aria-current="true"{% endif %}>all</a>
   {% for c in courses if c.active %}<a class="chip" style="--c: {{ c.id|course_color }}" href="?course={{ c.id }}"{% if c.id == pick %} aria-current="true"{% endif %}>{{ c.name }} <span class="n">{{ c.tasks }}</span></a>{% endfor %}
 </nav>
@@ -58,8 +59,8 @@
 <p class="empty">Nothing to do{% if pick %} in this course{% endif %}. <a href="?view=add">Add a task</a>.</p>
 {% endfor %}
 {% if done %}
-<section class="panel uni-group done-group">
-  <h2>Done <span class="muted">{{ done|length }}</span></h2>
+<details class="panel uni-group done-group">
+  <summary><h2>Done <span class="muted">{{ done|length }}</span></h2></summary>
   <ul class="task-list">
   {% for t in done %}
     <li class="task" style="--c: {{ t.course_id|course_color }}"><div class="done-row">
@@ -70,10 +71,10 @@
     </div></li>
   {% endfor %}
   </ul>
-</section>
+</details>
 {% endif %}
 
-{% elif view == "announcements" %}
+{% elif view in ("subjects", "faculty") %}
 {% include "app_announcements.html" %}
 
 {% elif view == "courses" %}

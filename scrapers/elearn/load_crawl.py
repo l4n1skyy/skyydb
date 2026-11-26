@@ -22,12 +22,14 @@ def load(crawl, conn):
         for c in crawl["courses"]:
             module = classify.is_module(c["name"])
             for a in c["announcements"]:
-                body = classify.clean(a.get("body"))
+                body = classify.text(a.get("body"))  # the whole post, paragraphs kept
                 cat, imp = classify.classify(a["title"], body, c["name"])
                 conn.execute("""INSERT INTO announcements (id, course_id, course, module, title, body, posted_at, category, importance)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                                 ON CONFLICT(id) DO UPDATE SET title = excluded.title, body = excluded.body, category = excluded.category,
-                                                              importance = excluded.importance, module = excluded.module""",
+                                                              importance = excluded.importance, module = excluded.module,
+                                    -- a post the activity stream saw first may have been stored without a date: take the crawl's
+                                    posted_at = CASE WHEN announcements.posted_at = '' THEN excluded.posted_at ELSE announcements.posted_at END""",
                              (a["id"], c["id"], c["name"], int(module), a["title"].strip(), body, local(a.get("created")), cat, imp))
                 n_ann += 1
             mine = {g["columnId"]: g for g in c["my_grades"]}
